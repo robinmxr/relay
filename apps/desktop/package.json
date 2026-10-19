@@ -1,0 +1,29 @@
+{
+  "name": "@relay/desktop",
+  "productName": "Relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Relay desktop shell",
+  "author": "Relay",
+  "main": "dist/main.js",
+  "relay": {
+    "webUrl": "https://192.168.21.155:4443",
+    "updateUrl": ""
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "tsc -p . && electron .",
+    "typecheck": "tsc -p . --noEmit",
+    "pack": "tsc -p . && electron-builder --dir",
+    "dist": "tsc -p . && electron-builder"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^1.8.0",
+    "@types/node": "^22.10.2",
+    "electron": "33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

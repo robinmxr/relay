@@ -1,0 +1,38 @@
+# Packaging for the desktop shell. `npm run pack` builds an unpacked app to try locally;
+# `npm run dist` builds installers. Signing and notarization run when their credentials are set
+# (CSC_LINK / CSC_KEY_PASSWORD, and APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID).
+appId: app.relay.desktop
+productName: Relay
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+asar: true
+# No native modules, so skip electron-builder's dependency install/rebuild. In an npm workspace that
+# step prunes the shared node_modules.
+npmRebuild: false
+protocols:
+  - name: Relay
+    schemes:
+      - relay
+# Flips Electron fuses after packaging and before signing.
+afterPack: scripts/after-pack.cjs
+mac:
+  target:
+    - dmg
+    - zip # electron-updater installs updates from the zip
+  category: public.app-category.business
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Relay uses the microphone for huddles.
+    NSCameraUsageDescription: Relay uses the camera for huddles.
+win:
+  target: nsis
+linux:
+  target: AppImage
+  category: Network

@@ -1,0 +1,26 @@
+{
+  "name": "relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Team chat: Electron desktop shell, React web client, Node realtime server",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @relay/server\" \"npm run dev -w @relay/web\"",
+    "desktop": "npm run start -w @relay/desktop",
+    "build": "npm run build -w @relay/web && npm run build -w @relay/desktop",
+    "start": "npm run start -w @relay/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test -w @relay/server",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "desktop:pack": "npm run pack -w @relay/desktop",
+    "desktop:dist": "npm run dist -w @relay/desktop"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  }
+}
