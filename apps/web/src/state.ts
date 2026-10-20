@@ -22,6 +22,7 @@ export interface State {
 
 export type Action =
   | { type: 'status'; status: ConnectionStatus }
+  | { type: 'me'; me: User }
   | { type: 'workspaces'; workspaces: Workspace[] }
   | { type: 'switch-workspace'; workspaceId: string }
   | { type: 'channels'; workspaceId: string; channels: Channel[] }
@@ -73,10 +74,24 @@ function withoutTyping(typing: State['typing'], channelId: string, userId: strin
   return { ...typing, [channelId]: rest };
 }
 
+/** Copies the fresh name/avatar/status into message and reply snapshots, so an edit shows in chats already loaded. */
+function refreshUser(state: State, user: User): Pick<State, 'messages' | 'replies'> {
+  const patch = (list: Message[] | undefined): Message[] | undefined => {
+    if (!list?.some((m) => m.user.id === user.id)) return list;
+    return list.map((m) => (m.user.id === user.id ? { ...m, user: { ...m.user, name: user.name, avatarUrl: user.avatarUrl, status: user.status } } : m));
+  };
+  return {
+    messages: Object.fromEntries(Object.entries(state.messages).map(([k, v]) => [k, patch(v) ?? v])),
+    replies: Object.fromEntries(Object.entries(state.replies).map(([k, v]) => [k, patch(v) ?? v])),
+  };
+}
+
 export function reducer(s: State, a: Action): State {
   switch (a.type) {
     case 'status':
       return { ...s, status: a.status };
+    case 'me':
+      return { ...s, me: a.me, ...refreshUser(s, a.me) };
     case 'workspaces':
       return { ...s, workspaces: a.workspaces };
     case 'switch-workspace':
@@ -86,9 +101,19 @@ export function reducer(s: State, a: Action): State {
     case 'channels':
       if (a.workspaceId !== s.workspaceId) return s;
       return { ...s, channels: a.channels.map((c) => (c.id === s.activeId ? { ...c, unread: 0, mentions: 0 } : c)) };
-    case 'users':
+    case 'users': {
       if (a.workspaceId !== s.workspaceId) return s;
-      return { ...s, users: Object.fromEntries(a.users.map((u) => [u.id, u])) };
+      const users = Object.fromEntries(a.users.map((u) => [u.id, u]));
+      // A refetched roster may carry new names or avatars; patch them into loaded messages.
+      let patched: Pick<State, 'messages' | 'replies'> = { messages: s.messages, replies: s.replies };
+      for (const u of a.users) {
+        const before = s.users[u.id];
+        if (before && (before.name !== u.name || before.avatarUrl !== u.avatarUrl)) {
+          patched = refreshUser({ ...s, ...patched }, u);
+        }
+      }
+      return { ...s, users, ...patched };
+    }
     case 'presence': {
       const user = s.users[a.userId];
       return user ? { ...s, users: { ...s.users, [a.userId]: { ...user, online: a.online } } } : s;

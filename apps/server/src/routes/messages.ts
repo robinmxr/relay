@@ -52,6 +52,7 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { body } = parse(z.object({ body: z.string().trim().max(LIMITS.messageBody) }), req.body);
     const m = await meta(id);
     const access = await requireChannel(db, m.channel_id, user.id, { member: true });
+    if (access.archived_at) throw new HttpError(403, 'This channel is archived');
     if (m.user_id !== user.id) throw new HttpError(403, 'You can only edit your own messages');
     if (m.deleted_at) throw new HttpError(400, 'Message was deleted');
     if (!body && m.files === 0) throw new HttpError(400, 'A message needs text or a file');
@@ -65,7 +66,8 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx): void {
     const user = me(req);
     const { id } = parse(idParams, req.params);
     const m = await meta(id);
-    await requireChannel(db, m.channel_id, user.id, { member: true });
+    const access = await requireChannel(db, m.channel_id, user.id, { member: true });
+    if (access.archived_at) throw new HttpError(403, 'This channel is archived');
     if (m.user_id !== user.id) throw new HttpError(403, 'You can only delete your own messages');
 
     const keys = await db.query<{ storage_key: string }>(
@@ -104,7 +106,8 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { id } = parse(idParams, req.params);
     const { emoji } = parse(z.object({ emoji: z.string().trim().min(1).max(32) }), req.body);
     const m = await meta(id);
-    await requireChannel(db, m.channel_id, user.id, { member: true });
+    const access = await requireChannel(db, m.channel_id, user.id, { member: true });
+    if (access.archived_at) throw new HttpError(403, 'This channel is archived');
     if (m.deleted_at) throw new HttpError(400, 'Message was deleted');
     const removed = await db.query(
       'delete from reactions where message_id = $1 and user_id = $2 and emoji = $3 returning 1',

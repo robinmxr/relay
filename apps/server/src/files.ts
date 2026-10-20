@@ -34,6 +34,14 @@ export class FileStore {
     return `/api/files/${id}?exp=${exp}&sig=${this.sign(id, exp)}`;
   }
 
+  /** Same signing scheme, for the avatar that lives at /api/avatars/:userId.
+   *  `updatedAt` versions the URL (to the millisecond) so a replaced avatar isn't served from the browser's cache. */
+  avatarUrl(userId: string, updatedAt?: Date | string | null): string {
+    const exp = (Math.floor(Date.now() / 1000 / DAY_S) + 2) * DAY_S;
+    const v = updatedAt ? `&v=${new Date(updatedAt).getTime()}` : '';
+    return `/api/avatars/${userId}?exp=${exp}&sig=${this.sign(userId, exp)}${v}`;
+  }
+
   verify(id: string, exp: number, sig: string): boolean {
     if (!Number.isInteger(exp) || exp * 1000 < Date.now()) return false;
     const expected = Buffer.from(this.sign(id, exp));

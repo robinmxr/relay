@@ -1,10 +1,28 @@
 import { useEffect, useState } from 'react';
 
 let shared: AudioContext | null = null;
+let resumeHooked = false;
 
 export function audioContext(): AudioContext {
   shared ??= new AudioContext();
   void shared.resume().catch(() => {});
+  // A context created before the page has seen a gesture starts suspended and
+  // resume() fails; retry it on the first click or key press.
+  if (!resumeHooked) {
+    resumeHooked = true;
+    const resume = () => {
+      void shared
+        ?.resume()
+        .then(() => {
+          if (shared?.state !== 'running') return;
+          window.removeEventListener('pointerdown', resume);
+          window.removeEventListener('keydown', resume);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('pointerdown', resume);
+    window.addEventListener('keydown', resume);
+  }
   return shared;
 }
 
@@ -28,7 +46,8 @@ export function useSpeaking(stream: MediaStream | null): boolean {
       analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       source.connect(analyser);
-    } catch {
+    } catch (err) {
+      console.warn('speaking indicator unavailable', err);
       return;
     }
     const samples = new Uint8Array(analyser.fftSize);

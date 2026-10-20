@@ -27,7 +27,7 @@ const { app } = await buildApp({
   dataDir: env.PGLITE_DIR ?? '.data/pglite',
   filesDir: env.FILES_DIR ?? '.data/uploads',
   redisUrl: env.REDIS_URL || undefined,
-  devSignin: env.RELAY_DEV_SIGNIN !== 'false',
+  devSignin: env.RELAY_DEV_SIGNIN === 'true',
   autoJoinDefault: env.RELAY_AUTO_JOIN_DEFAULT !== 'false',
   webDist: env.WEB_DIST ?? '../web/dist',
   rtc: iceServers(),

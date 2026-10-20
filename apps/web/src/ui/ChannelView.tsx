@@ -1,7 +1,7 @@
 import type { Channel, FileInfo, Message, User } from '@relay/shared';
 import { channelTitle } from '../format';
 import { Composer } from './Composer';
-import { BackIcon, HeadphonesIcon } from './icons';
+import { BackIcon, GearIcon, HeadphonesIcon } from './icons';
 import { MessageList, type MessageActions } from './MessageList';
 
 interface Props extends MessageActions {
@@ -21,7 +21,10 @@ interface Props extends MessageActions {
   onJoin: () => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onHuddle: () => void;
+  onOpenSettings: () => void;
   onBack: () => void;
+  /** Opens a person's DM (or your own settings). */
+  onOpenUser?: (userId: string) => void;
 }
 
 function typingLine(names: string[]): string {
@@ -33,6 +36,7 @@ function typingLine(names: string[]): string {
 
 export function ChannelView(p: Props) {
   const title = channelTitle(p.channel, p.me);
+  const archived = p.channel.archivedAt !== null;
   const inThisHuddle = p.myHuddleChannelId === p.channel.id;
   const huddleCount = p.channel.huddle.length;
   const huddleLabel = inThisHuddle ? 'Open huddle' : huddleCount > 0 ? `Join huddle · ${huddleCount}` : 'Huddle';
@@ -44,10 +48,18 @@ export function ChannelView(p: Props) {
           <BackIcon size={18} />
         </button>
         <div className="pane-title">
-          <h1>{title}</h1>
+          <h1>
+            {title}
+            {archived && <span className="pill">archived</span>}
+          </h1>
           {p.channel.topic && <p>{p.channel.topic}</p>}
         </div>
-        {p.channel.isMember && (
+        {p.channel.isMember && !p.channel.isDm && (
+          <button className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={p.onOpenSettings}>
+            <GearIcon />
+          </button>
+        )}
+        {p.channel.isMember && !archived && (
           <button
             className={`btn huddle-btn${huddleCount > 0 ? ' live' : ''}`}
             onClick={p.onHuddle}
@@ -71,6 +83,7 @@ export function ChannelView(p: Props) {
         onDelete={p.onDelete}
         onOpenThread={p.onOpenThread}
         onLoadOlder={p.onLoadOlder}
+        onOpenUser={p.onOpenUser}
         emptyText={p.channel.isDm ? `This is the start of your conversation with ${title}.` : `This is the very beginning of ${title}.`}
       />
 
@@ -79,14 +92,23 @@ export function ChannelView(p: Props) {
       </div>
 
       {p.channel.isMember ? (
-        <Composer
-          placeholder={`Message ${title}`}
-          users={p.users}
-          onSend={p.onSend}
-          onUpload={p.onUpload}
-          onTyping={p.onTyping}
-          focusKey={p.channel.id}
-        />
+        archived ? (
+          <div className="join-bar">
+            <span>#{p.channel.name} is archived. It stays readable, but new messages are disabled.</span>
+            <button className="btn" onClick={p.onOpenSettings}>
+              Restore channel
+            </button>
+          </div>
+        ) : (
+          <Composer
+            placeholder={`Message ${title}`}
+            users={p.users}
+            onSend={p.onSend}
+            onUpload={p.onUpload}
+            onTyping={p.onTyping}
+            focusKey={p.channel.id}
+          />
+        )
       ) : (
         <div className="join-bar">
           <span>You are viewing {title}.</span>

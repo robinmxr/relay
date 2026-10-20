@@ -2,13 +2,14 @@ import type { User } from '@relay/shared';
 import { colorFor, initials } from '../format';
 
 export function Avatar({ user, size = 36, online }: { user: User; size?: number; online?: boolean }) {
+  const radius = Math.round(size * 0.24);
   return (
     <span
       className="avatar"
       aria-hidden="true"
-      style={{ width: size, height: size, background: colorFor(user.id), fontSize: Math.round(size * 0.38), borderRadius: Math.round(size * 0.24) }}
+      style={{ width: size, height: size, background: colorFor(user.id), fontSize: Math.round(size * 0.38), borderRadius: radius }}
     >
-      {initials(user.name)}
+      {user.avatarUrl ? <img className="avatar-img" src={user.avatarUrl} alt="" /> : initials(user.name)}
       {online !== undefined && <span className={`presence ${online ? 'on' : 'off'}`} />}
     </span>
   );

@@ -31,9 +31,23 @@ export function HuddleAudio({ session }: { session: HuddleSession }) {
 function RemoteAudio({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
-    if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream;
+    // Sound needs an explicit play(): autoplay can be blocked until the first
+    // click or key press, and <audio autoPlay> fails silently when it is.
+    const unlock = () => void el.play().catch(() => {});
+    el.play().catch(() => {
+      window.addEventListener('pointerdown', unlock, { once: true });
+      window.addEventListener('keydown', unlock, { once: true });
+    });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      el.srcObject = null;
+    };
   }, [stream]);
-  return <audio ref={ref} autoPlay />;
+  return <audio ref={ref} autoPlay playsInline />;
 }
 
 function Video({ stream, label, className }: { stream: MediaStream; label: string; className?: string }) {

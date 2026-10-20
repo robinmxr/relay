@@ -51,7 +51,7 @@ export function channelTitle(c: Channel, me: User): string {
 const TOKEN_RE = /(<@[0-9a-f-]{36}>)|(https?:\/\/[^\s<]+[^\s<.,:;"')\]!?])/gi;
 
 /** Message text with mentions as chips and http(s) links clickable. Never renders HTML from the message. */
-export function renderBody(text: string, users: Record<string, User>, meId: string): ReactNode[] {
+export function renderBody(text: string, users: Record<string, User>, meId: string, onOpenUser?: (userId: string) => void): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   for (const match of text.matchAll(TOKEN_RE)) {
@@ -60,10 +60,23 @@ export function renderBody(text: string, users: Record<string, User>, meId: stri
     if (match[1]) {
       const id = match[1].slice(2, -1).toLowerCase();
       const name = users[id]?.name ?? 'someone';
+      const label = `@${name}`;
       out.push(
-        <span key={i} className={`mention${id === meId ? ' me' : ''}`}>
-          @{name}
-        </span>,
+        onOpenUser ? (
+          <button
+            key={i}
+            type="button"
+            className={`mention as-btn${id === meId ? ' me' : ''}`}
+            title={id === meId ? 'Your profile' : `Message ${name}`}
+            onClick={() => onOpenUser(id)}
+          >
+            {label}
+          </button>
+        ) : (
+          <span key={i} className={`mention${id === meId ? ' me' : ''}`}>
+            {label}
+          </span>
+        ),
       );
     } else {
       out.push(

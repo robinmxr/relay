@@ -5,7 +5,9 @@ import { LIMITS, type UserWithPresence, type Workspace } from '@relay/shared';
 import type { Ctx } from '../context';
 import { createDefaultChannels } from '../db';
 import { HttpError, parse } from '../errors';
+import { hashPassword, newTempPassword } from '../password';
 import { joinWorkspace, listChannels, listWorkspaces, requireWorkspace, searchMessages } from '../queries';
+import { toUser, USER_COLUMNS, type UserRow } from '../users';
 import { me, uuid, workspaceParams } from './util';
 
 const CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -60,11 +62,22 @@ export function workspaceRoutes(app: FastifyInstance, ctx: Ctx): void {
     return { id: ws.id, name: ws.name, role: await requireWorkspace(db, ws.id, user.id), joinCode: ws.join_code };
   });
 
+  /** Renames the workspace; the rail and headers update for everyone. Owner only. */
+  app.patch('/api/workspaces/:wid', async (req) => {
+    const user = me(req);
+    const { wid } = parse(workspaceParams, req.params);
+    const { name } = parse(z.object({ name: z.string().trim().min(1).max(80) }), req.body);
+    if ((await requireWorkspace(db, wid, user.id)) !== 'owner') throw new HttpError(403, 'Only the workspace owner can rename it');
+    await db.query('update workspaces set name = $2 where id = $1', [wid, name]);
+    await hub.toWorkspace(db, wid, { type: 'workspaces.changed' });
+    return { ok: true };
+  });
+
   app.get('/api/workspaces/:wid/channels', async (req) => {
     const user = me(req);
     const { wid } = parse(workspaceParams, req.params);
     await requireWorkspace(db, wid, user.id);
-    return listChannels(db, ctx.huddles, user, wid);
+    return listChannels(db, ctx.huddles, ctx.files, user, wid);
   });
 
   app.post('/api/workspaces/:wid/channels', async (req) => {
@@ -90,19 +103,57 @@ export function workspaceRoutes(app: FastifyInstance, ctx: Ctx): void {
     return { id };
   });
 
+  /** Everyone in the workspace, with presence and role — powers the People panel. */
   app.get('/api/workspaces/:wid/users', async (req): Promise<UserWithPresence[]> => {
     const user = me(req);
     const { wid } = parse(workspaceParams, req.params);
     await requireWorkspace(db, wid, user.id);
-    const rows = await db.query<{ id: string; email: string; name: string }>(
-      `select u.id, u.email, u.name from users u
+    const rows = await db.query<UserRow & { role: 'owner' | 'member' }>(
+      `select ${USER_COLUMNS}, w.role from users u
        join workspace_members w on w.user_id = u.id
        where w.workspace_id = $1
        order by lower(u.name)`,
       [wid],
     );
     const online = await ctx.presence.online(rows.map((u) => u.id));
-    return rows.map((u) => ({ ...u, online: online.has(u.id) }));
+    return rows.map((u) => ({ ...toUser(ctx.files, u), online: online.has(u.id), role: u.role }));
+  });
+
+  /** Kicks a member out of the workspace and its channels. Owner only; owners cannot be kicked. */
+  app.delete('/api/workspaces/:wid/members/:uid', async (req) => {
+    const user = me(req);
+    const { wid, uid } = parse(z.object({ wid: uuid, uid: uuid }), req.params);
+    if ((await requireWorkspace(db, wid, user.id)) !== 'owner') throw new HttpError(403, 'Only the workspace owner can remove people');
+    if (uid === user.id) throw new HttpError(400, 'You cannot remove yourself');
+    const target = await db.query<{ role: 'owner' | 'member' }>('select role from workspace_members where workspace_id = $1 and user_id = $2', [wid, uid]);
+    if (!target.length) throw new HttpError(404, 'User not found');
+    if (target[0].role === 'owner') throw new HttpError(403, 'The workspace owner cannot be removed');
+    await db.query('delete from workspace_members where workspace_id = $1 and user_id = $2', [wid, uid]);
+    await db.query('delete from channel_members where user_id = $2 and channel_id in (select id from channels where workspace_id = $1)', [wid, uid]);
+    await hub.publish({ to: [uid], event: { type: 'workspaces.changed' } });
+    await hub.toWorkspace(db, wid, { type: 'members.changed', workspaceId: wid });
+    return { ok: true };
+  });
+
+  /**
+   * The no-email password reset: the owner gets a one-time password to hand over.
+   * Sign-in forces the member to replace it, their sessions die, and their old
+   * recovery code stops working.
+   */
+  app.post('/api/workspaces/:wid/members/:uid/reset-password', async (req): Promise<{ tempPassword: string }> => {
+    const user = me(req);
+    const { wid, uid } = parse(z.object({ wid: uuid, uid: uuid }), req.params);
+    if ((await requireWorkspace(db, wid, user.id)) !== 'owner') throw new HttpError(403, 'Only the workspace owner can reset passwords');
+    const target = await db.query('select 1 from workspace_members where workspace_id = $1 and user_id = $2', [wid, uid]);
+    if (!target.length) throw new HttpError(404, 'User not found');
+    const tempPassword = newTempPassword();
+    await db.query('update users set password_hash = $2, recovery_hash = null, must_change = true where id = $1', [
+      uid,
+      await hashPassword(tempPassword),
+    ]);
+    await db.query('delete from sessions where user_id = $1', [uid]);
+    await hub.publish({ to: [uid], event: { type: 'workspaces.changed' } });
+    return { tempPassword };
   });
 
   app.post('/api/workspaces/:wid/dms', async (req) => {

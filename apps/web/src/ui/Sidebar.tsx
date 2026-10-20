@@ -3,7 +3,7 @@ import type { Channel, User, UserWithPresence, Workspace } from '@relay/shared';
 import type { ConnectionStatus } from '../api';
 import { canRequestBrowserNotifications } from '../desktop';
 import { Avatar } from './Avatar';
-import { HashIcon, HeadphonesIcon, InviteIcon, LockIcon, PlusIcon, SearchIcon, SignOutIcon } from './icons';
+import { GearIcon, HashIcon, HeadphonesIcon, InviteIcon, LockIcon, PlusIcon, SearchIcon, SignOutIcon, UsersIcon } from './icons';
 
 interface Props {
   me: User;
@@ -17,6 +17,8 @@ interface Props {
   onJoin: (id: string) => Promise<void>;
   onStartDm: (userId: string) => Promise<void>;
   onSearch: (query: string) => void;
+  onOpenSettings: () => void;
+  onOpenPeople: () => void;
   onSignOut: () => void;
   /** Huddle controls, when this client is in a huddle. */
   footer?: ReactNode;
@@ -33,12 +35,21 @@ export function Sidebar(p: Props) {
   const [panel, setPanel] = useState<null | 'new' | 'browse' | 'dm' | 'invite'>(null);
   const [askNotify, setAskNotify] = useState(canRequestBrowserNotifications);
   const [query, setQuery] = useState('');
+  const [dmQuery, setDmQuery] = useState('');
   const [copied, setCopied] = useState(false);
-  const toggle = (name: NonNullable<typeof panel>) => setPanel((cur) => (cur === name ? null : name));
+  const toggle = (name: NonNullable<typeof panel>) => {
+    if (name === 'dm' && panel !== 'dm') setDmQuery('');
+    setPanel((cur) => (cur === name ? null : name));
+  };
 
   const mine = p.channels.filter((c) => !c.isDm && c.isMember);
-  const others = p.channels.filter((c) => !c.isDm && !c.isMember);
+  // Archived public channels drop out of browse; they stay visible where already joined.
+  const others = p.channels.filter((c) => !c.isDm && !c.isMember && !c.archivedAt);
   const dms = p.channels.filter((c) => c.isDm);
+  const dmQ = dmQuery.trim().toLowerCase();
+  const dmCandidates = Object.values(p.users).filter(
+    (u) => !dmQ || u.name.toLowerCase().includes(dmQ) || u.email.toLowerCase().includes(dmQ),
+  );
 
   const search = (e: FormEvent) => {
     e.preventDefault();
@@ -61,30 +72,12 @@ export function Sidebar(p: Props) {
       <div className="sidebar-head">
         <div className="sidebar-head-text">
           <div className="ws-name">{p.workspace?.name ?? 'Relay'}</div>
-          <div className="ws-status">
+          <button className="ws-status as-btn" title="Your profile and settings" onClick={p.onOpenSettings}>
             <span className={`status-dot ${p.status}`} aria-hidden="true" />
-            {p.me.name} · {STATUS_LABEL[p.status]}
-          </div>
+            {p.me.status ? `${p.me.status.emoji} ${p.me.status.text}`.trim() : p.me.name} · {STATUS_LABEL[p.status]}
+          </button>
         </div>
-        <button className="icon-btn on-dark" aria-label="Invite people" title="Invite people" aria-expanded={panel === 'invite'} onClick={() => toggle('invite')}>
-          <InviteIcon />
-        </button>
-        <button className="icon-btn on-dark" aria-label="Sign out" title="Sign out" onClick={p.onSignOut}>
-          <SignOutIcon />
-        </button>
       </div>
-
-      {panel === 'invite' && p.workspace && (
-        <div className="invite-panel">
-          <p>Share this invite code. People join from the + button in the workspace rail.</p>
-          <div className="invite-code">
-            <code>{p.workspace.joinCode}</code>
-            <button className="btn small" onClick={() => void copyCode()}>
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        </div>
-      )}
 
       <form className="sidebar-search" role="search" onSubmit={search}>
         <label className="sr-only" htmlFor="search-input">
@@ -105,9 +98,10 @@ export function Sidebar(p: Props) {
                 bold={c.unread > 0}
                 count={c.mentions}
                 huddle={c.huddle.length > 0}
+                archived={c.archivedAt !== null}
                 onClick={() => p.onOpen(c.id)}
                 icon={c.isPrivate ? <LockIcon size={15} /> : <HashIcon size={15} />}
-                label={c.name}
+                label={c.archivedAt ? `${c.name} 📦` : c.name}
               />
             </li>
           ))}
@@ -134,20 +128,40 @@ export function Sidebar(p: Props) {
 
         <SectionHeader title="Direct messages" actionLabel="New direct message" onAction={() => toggle('dm')} />
         {panel === 'dm' && (
-          <ul className="nav-list picker" aria-label="People">
-            {Object.values(p.users).map((u) => (
-              <li key={u.id}>
-                <button className="nav-item" onClick={() => void p.onStartDm(u.id).then(() => setPanel(null))}>
-                  <Avatar user={u} size={20} online={u.online} />
-                  <span className="nav-label">{u.id === p.me.id ? `${u.name} (you)` : u.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            <label className="sr-only" htmlFor="dm-filter">
+              Find people
+            </label>
+            <input
+              id="dm-filter"
+              className="picker-filter"
+              type="search"
+              autoFocus
+              placeholder="Find people"
+              value={dmQuery}
+              onChange={(e) => setDmQuery(e.target.value)}
+              maxLength={100}
+            />
+            <ul className="nav-list picker" aria-label="People">
+              {dmCandidates.map((u) => (
+                <li key={u.id}>
+                  <button className="nav-item" onClick={() => void p.onStartDm(u.id).then(() => setPanel(null))}>
+                    <Avatar user={u} size={20} online={u.online} />
+                    <span className="nav-label">
+                      {u.id === p.me.id ? `${u.name} (you)` : u.name}
+                      {u.status ? ` ${u.status.emoji}` : ''}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {dmCandidates.length === 0 && <li className="picker-empty muted">No one matches.</li>}
+            </ul>
+          </>
         )}
         <ul className="nav-list">
           {dms.map((c) => {
             const other = c.dmUser ?? p.me;
+            const otherUser = p.users[other.id];
             return (
               <li key={c.id}>
                 <NavItem
@@ -156,8 +170,8 @@ export function Sidebar(p: Props) {
                   count={c.unread}
                   huddle={c.huddle.length > 0}
                   onClick={() => p.onOpen(c.id)}
-                  icon={<Avatar user={other} size={20} online={p.users[other.id]?.online ?? false} />}
-                  label={other.id === p.me.id ? `${other.name} (you)` : other.name}
+                  icon={<Avatar user={other} size={20} online={otherUser?.online ?? false} />}
+                  label={`${other.id === p.me.id ? `${other.name} (you)` : other.name}${otherUser?.status ? ` ${otherUser.status.emoji}` : ''}`}
                 />
               </li>
             );
@@ -170,7 +184,35 @@ export function Sidebar(p: Props) {
           Turn on desktop notifications
         </button>
       )}
+
       {p.footer}
+
+      {panel === 'invite' && p.workspace && (
+        <div className="invite-panel">
+          <p>Share this invite code. People join from the + button in the workspace rail.</p>
+          <div className="invite-code">
+            <code>{p.workspace.joinCode}</code>
+            <button className="btn small" onClick={() => void copyCode()}>
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="sidebar-foot">
+        <button className="icon-btn on-dark" aria-label="Invite people" title="Invite people" aria-expanded={panel === 'invite'} onClick={() => toggle('invite')}>
+          <InviteIcon />
+        </button>
+        <button className="icon-btn on-dark" aria-label="People" title="People" onClick={p.onOpenPeople}>
+          <UsersIcon />
+        </button>
+        <button className="icon-btn on-dark" aria-label="Settings" title="Settings" onClick={p.onOpenSettings}>
+          <GearIcon />
+        </button>
+        <button className="icon-btn on-dark" aria-label="Sign out" title="Sign out" onClick={p.onSignOut}>
+          <SignOutIcon />
+        </button>
+      </div>
     </aside>
   );
 }
@@ -186,11 +228,11 @@ function SectionHeader({ title, actionLabel, onAction }: { title: string; action
   );
 }
 
-function NavItem(props: { active: boolean; bold: boolean; count: number; huddle: boolean; onClick: () => void; icon: ReactNode; label: string }) {
+function NavItem(props: { active: boolean; bold: boolean; count: number; huddle: boolean; archived?: boolean; onClick: () => void; icon: ReactNode; label: string }) {
   const { active, bold, count } = props;
   return (
     <button
-      className={`nav-item${active ? ' active' : ''}${bold && !active ? ' unread' : ''}`}
+      className={`nav-item${active ? ' active' : ''}${bold && !active ? ' unread' : ''}${props.archived ? ' archived' : ''}`}
       aria-current={active ? 'page' : undefined}
       onClick={props.onClick}
     >

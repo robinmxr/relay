@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { Channel, Message, MessagePage, RtcConfig, ServerEvent, User, UserWithPresence, Workspace as WorkspaceInfo } from '@relay/shared';
+import type { Channel, Message, MessagePage, RtcConfig, ServerEvent, User, UserSettings, UserWithPresence, Workspace as WorkspaceInfo } from '@relay/shared';
 import { api, RealtimeClient, uploadFile } from './api';
 import { desktop, notify, parseDeepLink } from './desktop';
 import { channelTitle, plainBody } from './format';
 import { HuddleSession } from './huddle';
+import { parseRoute, routePath, type Route } from './routes';
 import { playChime } from './sounds';
 import { initialState, reducer } from './state';
 import { ChannelView } from './ui/ChannelView';
+import { ChannelSettings } from './ui/ChannelSettings';
 import { HuddleAudio, HuddleBar, HuddleScreen, HuddleStage } from './ui/Huddle';
 import { HuddleInvites, type HuddleInvite } from './ui/HuddleInvites';
+import { People } from './ui/People';
 import { SearchView } from './ui/SearchView';
+import { Settings } from './ui/Settings';
 import { Sidebar } from './ui/Sidebar';
 import { Thread } from './ui/Thread';
 import { WorkspaceRail } from './ui/WorkspaceRail';
@@ -45,15 +49,93 @@ interface HuddleState {
   error: string | null;
 }
 
-export function Workspace({ token, me, onSignOut }: { token: string; me: User; onSignOut: () => void }) {
+export function Workspace({
+  token,
+  me,
+  prefs,
+  onPrefsChange,
+  onSignOut,
+}: {
+  token: string;
+  me: User;
+  prefs: UserSettings;
+  onPrefsChange: (patch: Partial<UserSettings>) => Promise<unknown>;
+  onSignOut: () => void;
+}) {
   const [state, dispatch] = useReducer(reducer, me, initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // The realtime effect should not resubscribe every time a preference changes.
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
   const realtime = useRef<RealtimeClient | null>(null);
   const [mobileView, setMobileView] = useState<'list' | 'channel'>('channel');
   const [search, setSearch] = useState<SearchState | null>(null);
   const [huddle, setHuddle] = useState<HuddleState | null>(null);
   const [huddleView, setHuddleView] = useState<'full' | 'mini'>('full');
+  // One source of truth for what the shell shows. The URL mirrors it (so pages are
+  // deep-linkable and the browser's Back button works), but state is never derived from it.
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
+  // Where closing a page returns to: the path we opened it from. A deep link has no
+  // workspace behind it, so it returns to chat.
+  const returnTo = useRef('/');
+  const routeRef = useRef(route);
+  routeRef.current = route;
+
+  /** Navigates within the shell. `push` adds a history entry; otherwise the URL is just mirrored. */
+  const navigate = useCallback((next: Route, push: boolean) => {
+    const path = routePath(next);
+    if (push) window.history.pushState({ relay: true }, '', path);
+    else window.history.replaceState(window.history.state, '', path);
+    setRoute(next);
+  }, []);
+
+  /**
+   * Opens a page. It never stacks on another page — the workspace is one container, so
+   * going to settings from people replaces it, exactly like choosing another screen in Slack.
+   */
+  const openPage = useCallback(
+    (next: Route) => {
+      if (routeRef.current.name === 'chat') returnTo.current = routePath(routeRef.current);
+      navigate(next, routeRef.current.name === 'chat');
+    },
+    [navigate],
+  );
+
+  /** Back to the workspace view. Always works, whatever the URL or history happens to be. */
+  const closePage = useCallback(() => {
+    if (routeRef.current.name === 'chat') return;
+    const back = returnTo.current;
+    if (window.history.state?.relay && window.history.length > 1) window.history.back();
+    else navigate(parseRoute(back), false);
+    setRoute(parseRoute(back));
+  }, [navigate]);
+
+  // Browser Back / Forward: the URL is the truth again.
+  useEffect(() => {
+    const onPop = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // ⌘, / Ctrl+, opens settings; ⌘K / Ctrl+K jumps to search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      const key = e.key.toLowerCase();
+      if (key === ',' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        openPage({ name: 'settings', tab: 'profile' });
+      } else if (key === 'k' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        if (routeRef.current.name !== 'chat') closePage();
+        document.getElementById('search-input')?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openPage, closePage]);
+
   const huddleRef = useRef(huddle);
   huddleRef.current = huddle;
   const [, bumpHuddle] = useReducer((n: number) => n + 1, 0);
@@ -84,19 +166,33 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
     dispatch({ type: 'replies', parentId, replies: await api<Message[]>(`/messages/${parentId}/replies`) });
   }, []);
 
-  const open = useCallback((channelId: string) => {
-    dispatch({ type: 'open', channelId });
-    setSearch(null);
-    setMobileView('channel');
-    const wid = stateRef.current.workspaceId;
-    if (wid) remember(lastChannelKey(wid), channelId);
-  }, []);
+  const open = useCallback(
+    (channelId: string) => {
+      dispatch({ type: 'open', channelId });
+      setSearch(null);
+      setMobileView('channel');
+      // A notification or deep link lands you on the message, even from a page.
+      closePage();
+      const wid = stateRef.current.workspaceId;
+      if (wid) remember(lastChannelKey(wid), channelId);
+    },
+    [closePage],
+  );
 
   const switchWorkspace = useCallback((wid: string) => {
     dispatch({ type: 'switch-workspace', workspaceId: wid });
     setSearch(null);
     remember(LAST_WORKSPACE_KEY, wid);
   }, []);
+
+  /** Choosing a workspace from the rail: leave whatever page is open, like Slack does. */
+  const pickWorkspace = useCallback(
+    (wid: string) => {
+      switchWorkspace(wid);
+      closePage();
+    },
+    [switchWorkspace, closePage],
+  );
 
   // First load: workspaces, then the last one used.
   useEffect(() => {
@@ -151,6 +247,9 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
       // Threads only notify when they mention you.
       if (m.parentId && !mentioned) return;
       if (m.channelId === s.activeId && !document.hidden) return;
+      // The "mentions" level still notifies for direct messages.
+      if (prefsRef.current.notifyLevel === 'mentions' && !mentioned && !channel.isDm) return;
+      if (!prefsRef.current.desktopNotifications) return;
       const title = mentioned ? `${m.user.name} mentioned you in ${channelTitle(channel, s.me)}` : channel.isDm ? m.user.name : channelTitle(channel, s.me);
       const text = plainBody(m.body, s.users) || (m.files.length ? `Shared ${m.files.length} file${m.files.length === 1 ? '' : 's'}` : '');
       const body = channel.isDm || mentioned ? text : `${m.user.name}: ${text}`;
@@ -203,8 +302,10 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
             by: ev.by,
           };
           setInvites((list) => [...list.filter((i) => i.channelId !== ev.channelId), invite]);
-          playChime();
-          notify(ev.isDm ? `${ev.by.name} is calling you` : `${ev.by.name} started a huddle`, ev.isDm ? 'Open Relay to join' : `in #${ev.channelName}`, ev.channelId, open);
+          if (prefsRef.current.sound) playChime();
+          if (prefsRef.current.desktopNotifications) {
+            notify(ev.isDm ? `${ev.by.name} is calling you` : `${ev.by.name} started a huddle`, ev.isDm ? 'Open Relay to join' : `in #${ev.channelName}`, ev.channelId, open);
+          }
           break;
         }
         case 'huddle.signal': {
@@ -239,6 +340,15 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
 
   const active = state.channels.find((c) => c.id === state.activeId) ?? null;
   const activeMessages = state.activeId ? state.messages[state.activeId] : undefined;
+  // The channel whose settings page is open, kept current so renames show while the page is up.
+  const settingsChannel = route.name === 'channel-settings' ? (state.channels.find((c) => c.id === route.channelId) ?? null) : null;
+
+  // A deep-linked channel settings path must resolve to a channel of the loaded workspace.
+  useEffect(() => {
+    if (route.name !== 'channel-settings' || settingsChannel) return;
+    if (state.channels.length === 0) return; // The workspace is still loading.
+    closePage();
+  }, [route, settingsChannel, state.channels, closePage]);
 
   useEffect(() => {
     if (state.activeId) loadMessages(state.activeId).catch(console.error);
@@ -342,6 +452,18 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
     [workspaceId, loadChannels, open],
   );
 
+  /** Clicking a person anywhere: their DM with you — or your own settings, when it's you. */
+  const openUser = useCallback(
+    (userId: string) => {
+      if (userId === stateRef.current.me.id) {
+        openPage({ name: 'settings', tab: 'profile' });
+        return;
+      }
+      void startDm(userId).catch(console.error);
+    },
+    [startDm, openPage],
+  );
+
   const createWorkspace = useCallback(
     async (name: string) => {
       const ws = await api<WorkspaceInfo>('/workspaces', { body: { name } });
@@ -440,7 +562,7 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
       <WorkspaceRail
         workspaces={state.workspaces}
         activeId={workspaceId}
-        onSwitch={switchWorkspace}
+        onSwitch={pickWorkspace}
         onCreate={createWorkspace}
         onJoin={joinWorkspace}
       />
@@ -456,6 +578,8 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
         onJoin={join}
         onStartDm={startDm}
         onSearch={runSearch}
+        onOpenSettings={() => openPage({ name: 'settings', tab: 'profile' })}
+        onOpenPeople={() => openPage({ name: 'people' })}
         onSignOut={onSignOut}
         footer={
           huddle && (
@@ -472,7 +596,44 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
         }
       />
       <main className="main">
-        {search ? (
+        {route.name === 'settings' ? (
+          <Settings
+            me={state.me}
+            prefs={prefs}
+            onPrefsChange={onPrefsChange}
+            onMeChange={(me) => dispatch({ type: 'me', me })}
+            tab={route.tab}
+            onTabChange={(tab) => navigate({ name: 'settings', tab }, false)}
+            onBack={closePage}
+            onSignOut={onSignOut}
+          />
+        ) : route.name === 'people' ? (
+          <People
+            workspace={currentWorkspace}
+            members={Object.values(state.users)}
+            onMessage={(id) => {
+              if (id === stateRef.current.me.id) {
+                openUser(id);
+                return;
+              }
+              // Back to the channel now; the DM opens as soon as it's ready.
+              closePage();
+              openUser(id);
+            }}
+            onBack={closePage}
+          />
+        ) : route.name === 'channel-settings' && settingsChannel ? (
+          <ChannelSettings
+            channel={settingsChannel}
+            me={state.me}
+            users={state.users}
+            onBack={closePage}
+            onLeft={(id) => {
+              closePage();
+              if (state.activeId === id) dispatch({ type: 'open', channelId: null });
+            }}
+          />
+        ) : search ? (
           <SearchView
             query={search.query}
             results={search.results}
@@ -501,16 +662,18 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
             onTyping={() => realtime.current?.send({ type: 'typing', channelId: active.id })}
             onJoin={() => join(active.id)}
             onLoadOlder={loadOlder}
+            onOpenUser={openUser}
             onHuddle={() =>
               huddle?.session.channelId === active.id ? setHuddleView('full') : void startHuddle(active.id, channelTitle(active, me))
             }
+            onOpenSettings={() => openPage({ name: 'channel-settings', channelId: active.id })}
             onBack={() => setMobileView('list')}
           />
         ) : (
           <div className="center-screen muted">{state.workspaces.length ? 'Pick a channel to start.' : 'Create or join a workspace to start.'}</div>
         )}
       </main>
-      {active && state.threadId && !search && (
+      {active && state.threadId && !search && route.name === 'chat' && (
         <Thread
           channel={active}
           me={state.me}
@@ -520,6 +683,7 @@ export function Workspace({ token, me, onSignOut }: { token: string; me: User; o
           onClose={() => dispatch({ type: 'thread', id: null })}
           onSend={(body, fileIds) => send(active.id, body, fileIds, state.threadId!)}
           onUpload={(file) => uploadFile(active.id, file)}
+          onOpenUser={openUser}
           {...messageActions}
         />
       )}

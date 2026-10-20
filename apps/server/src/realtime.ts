@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import type { ServerEvent, User } from '@relay/shared';
-import { userFromToken } from './auth';
+import { hashToken, userFromToken } from './auth';
 import type { Ctx } from './context';
+import type { Db } from './db';
 import { channelAccess, coworkerIds } from './queries';
 
 const uuid = z.string().uuid();
@@ -34,6 +35,7 @@ const clientEvent = z.discriminatedUnion('type', [
 
 const AUTH_TIMEOUT_MS = 5000;
 const TYPING_INTERVAL_MS = 2000;
+const LAST_SEEN_INTERVAL_MS = 5 * 60_000;
 
 export async function publishHuddle(ctx: Ctx, channelId: string): Promise<void> {
   await ctx.hub.toChannel(ctx.db, channelId, {
@@ -48,6 +50,10 @@ async function publishPresence(ctx: Ctx, userId: string, online: boolean): Promi
   await ctx.hub.publish({ to: await coworkerIds(ctx.db, userId), event: { type: 'presence', userId, online } });
 }
 
+function touchSession(db: Db, token: string): Promise<unknown> {
+  return db.query('update sessions set last_seen_at = now() where token_hash = $1', [hashToken(token)]).catch(() => {});
+}
+
 /**
  * GET /ws. Browsers cannot set headers on a WebSocket, so the first frame carries the session
  * token instead of the URL (which would end up in logs). Unauthenticated sockets are closed.
@@ -58,6 +64,8 @@ export function registerRealtime(app: FastifyInstance, ctx: Ctx): void {
   app.get('/ws', { websocket: true }, (socket: WebSocket) => {
     let user: User | null = null;
     let authing = false;
+    let sessionToken: string | null = null;
+    let lastSeenAt = 0;
     let lastTyping = 0;
     let frames = 0;
     let windowStart = Date.now();
@@ -66,27 +74,11 @@ export function registerRealtime(app: FastifyInstance, ctx: Ctx): void {
       if (!user) socket.close(4401, 'Authentication timeout');
     }, AUTH_TIMEOUT_MS);
 
-    socket.on('message', async (raw) => {
-      const now = Date.now();
-      if (now - windowStart >= 1000) {
-        windowStart = now;
-        frames = 0;
-      }
-      if (++frames > ctx.limits.socketFramesPerSecond) {
-        socket.close(4429, 'Too many messages');
-        return;
-      }
+    type Frame = z.infer<typeof clientEvent>;
 
-      let data: unknown;
-      try {
-        data = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      const parsed = clientEvent.safeParse(data);
-      if (!parsed.success) return;
-      const ev = parsed.data;
-
+    const handleFrame = async (ev: Frame, now: number): Promise<void> => {
+      // The socket may have closed while this frame waited its turn.
+      if (socket.readyState !== socket.OPEN) return;
       try {
         if (!user) {
           if (ev.type !== 'auth' || authing) {
@@ -94,15 +86,18 @@ export function registerRealtime(app: FastifyInstance, ctx: Ctx): void {
             return;
           }
           authing = true;
-          const found = await userFromToken(db, ev.token);
+          const found = await userFromToken(db, ctx.files, ev.token);
           if (!found) {
             socket.close(4401, 'Invalid session');
             return;
           }
           if (socket.readyState !== socket.OPEN) return;
           user = found;
+          sessionToken = ev.token;
+          lastSeenAt = Date.now();
           clearTimeout(authTimer);
           hub.add(user.id, socket);
+          void touchSession(db, ev.token);
           send({ type: 'hello', user });
           if (await presence.connect(user.id)) await publishPresence(ctx, user.id, true);
           return;
@@ -111,6 +106,11 @@ export function registerRealtime(app: FastifyInstance, ctx: Ctx): void {
         switch (ev.type) {
           case 'ping':
             send({ type: 'pong' });
+            // The client pings every 25 s; refresh the session's last-seen every few minutes.
+            if (sessionToken && Date.now() - lastSeenAt > LAST_SEEN_INTERVAL_MS) {
+              lastSeenAt = Date.now();
+              void touchSession(db, sessionToken);
+            }
             break;
           case 'typing': {
             if (now - lastTyping < TYPING_INTERVAL_MS) return;
@@ -165,6 +165,32 @@ export function registerRealtime(app: FastifyInstance, ctx: Ctx): void {
       } catch (err) {
         app.log.error(err);
       }
+    };
+
+    // Frames from one socket are handled strictly in arrival order: an async
+    // handler per frame would let an ICE candidate be relayed ahead of the
+    // offer it belongs to, and the receiver would have nowhere to put it.
+    let queue: Promise<void> = Promise.resolve();
+    socket.on('message', (raw) => {
+      const now = Date.now();
+      if (now - windowStart >= 1000) {
+        windowStart = now;
+        frames = 0;
+      }
+      if (++frames > ctx.limits.socketFramesPerSecond) {
+        socket.close(4429, 'Too many messages');
+        return;
+      }
+
+      let data: unknown;
+      try {
+        data = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      const parsed = clientEvent.safeParse(data);
+      if (!parsed.success) return;
+      queue = queue.then(() => handleFrame(parsed.data, now)).catch((err) => app.log.error(err));
     });
 
     socket.on('close', () => {

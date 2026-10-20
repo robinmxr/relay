@@ -3,10 +3,13 @@ import type { Db } from './db';
 import { HttpError } from './errors';
 import type { FileStore } from './files';
 import type { Huddles } from './huddles';
+import { toUser, type UserRow } from './users';
 
 const MESSAGE_SELECT = `
   select m.id, m.channel_id, m.parent_id, m.body, m.created_at, m.edited_at, m.deleted_at,
-    json_build_object('id', u.id, 'email', u.email, 'name', u.name) as author,
+    json_build_object('id', u.id, 'email', u.email, 'name', u.name,
+      'avatarKey', u.avatar_key, 'avatarUpdatedAt', u.avatar_updated_at, 'statusEmoji', u.status_emoji,
+      'statusText', u.status_text, 'statusExpires', u.status_expires_at) as author,
     (select count(*)::int from messages r where r.parent_id = m.id) as reply_count,
     (select max(r.created_at) from messages r where r.parent_id = m.id) as last_reply_at,
     coalesce((
@@ -35,7 +38,7 @@ interface MessageRow {
   created_at: Date | string;
   edited_at: Date | string | null;
   deleted_at: Date | string | null;
-  author: User;
+  author: UserRow;
   reply_count: number;
   last_reply_at: Date | string | null;
   reactions: { emoji: string; userIds: string[] }[];
@@ -51,7 +54,7 @@ function toMessage(r: MessageRow, files: FileStore): Message {
     id: r.id,
     channelId: r.channel_id,
     parentId: r.parent_id,
-    user: r.author,
+    user: toUser(files, r.author),
     body: deleted ? '' : r.body,
     createdAt: iso(r.created_at),
     editedAt: r.edited_at ? iso(r.edited_at) : null,
@@ -121,13 +124,14 @@ interface ChannelRow {
   is_member: boolean;
   unread: number;
   mentions: number;
-  dm_user: User | null;
+  archived_at: Date | string | null;
+  dm_user: UserRow | null;
 }
 
 /** Channels in the workspace the user belongs to, plus public ones they can join. */
-export async function listChannels(db: Db, huddles: Huddles, me: User, workspaceId: string): Promise<Channel[]> {
+export async function listChannels(db: Db, huddles: Huddles, files: FileStore, me: User, workspaceId: string): Promise<Channel[]> {
   const rows = await db.query<ChannelRow>(
-    `select c.id, c.workspace_id, c.name, c.topic, c.is_private, c.is_dm,
+    `select c.id, c.workspace_id, c.name, c.topic, c.is_private, c.is_dm, c.archived_at,
        (m.user_id is not null) as is_member,
        case when m.user_id is null then 0 else (
          select count(*)::int from messages x
@@ -140,7 +144,9 @@ export async function listChannels(db: Db, huddles: Huddles, me: User, workspace
            and x.user_id <> $1 and x.created_at > m.last_read_at
        ) end as mentions,
        case when c.is_dm then (
-         select json_build_object('id', u.id, 'email', u.email, 'name', u.name)
+         select json_build_object('id', u.id, 'email', u.email, 'name', u.name,
+           'avatarKey', u.avatar_key, 'avatarUpdatedAt', u.avatar_updated_at, 'statusEmoji', u.status_emoji,
+           'statusText', u.status_text, 'statusExpires', u.status_expires_at)
          from channel_members o join users u on u.id = o.user_id
          where o.channel_id = c.id and o.user_id <> $1
          limit 1
@@ -161,8 +167,9 @@ export async function listChannels(db: Db, huddles: Huddles, me: User, workspace
     isMember: r.is_member,
     unread: r.unread,
     mentions: r.mentions,
-    dmUser: r.is_dm ? (r.dm_user ?? me) : null,
+    dmUser: r.is_dm ? (r.dm_user ? toUser(files, r.dm_user) : me) : null,
     huddle: r.is_member ? huddles.participants(r.id) : [],
+    archivedAt: r.archived_at ? iso(r.archived_at) : null,
   }));
 }
 
@@ -171,12 +178,13 @@ export interface ChannelAccess {
   is_private: boolean;
   is_dm: boolean;
   is_member: boolean;
+  archived_at: Date | string | null;
 }
 
 /** The channel if the user may see it (workspace member, and channel member or public), else null. */
 export async function channelAccess(db: Db, channelId: string, userId: string): Promise<ChannelAccess | null> {
   const rows = await db.query<ChannelAccess & { in_workspace: boolean }>(
-    `select c.workspace_id, c.is_private, c.is_dm,
+    `select c.workspace_id, c.is_private, c.is_dm, c.archived_at,
        exists (select 1 from channel_members m where m.channel_id = c.id and m.user_id = $2) as is_member,
        exists (select 1 from workspace_members w where w.workspace_id = c.workspace_id and w.user_id = $2) as in_workspace
      from channels c
@@ -186,7 +194,13 @@ export async function channelAccess(db: Db, channelId: string, userId: string): 
   const row = rows[0];
   if (!row || !row.in_workspace) return null;
   if (!row.is_member && (row.is_private || row.is_dm)) return null;
-  return { workspace_id: row.workspace_id, is_private: row.is_private, is_dm: row.is_dm, is_member: row.is_member };
+  return {
+    workspace_id: row.workspace_id,
+    is_private: row.is_private,
+    is_dm: row.is_dm,
+    is_member: row.is_member,
+    archived_at: row.archived_at,
+  };
 }
 
 export async function requireChannel(db: Db, channelId: string, userId: string, opts: { member?: boolean } = {}): Promise<ChannelAccess> {

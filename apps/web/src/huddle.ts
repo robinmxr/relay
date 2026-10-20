@@ -30,6 +30,8 @@ export class HuddleSession {
   /** Everyone's mute/share status, as last reported by the server. */
   private members = new Map<string, HuddleMember>();
   private peers = new Map<string, Peer>();
+  /** Per-peer chain so offers and their ICE candidates are applied strictly in arrival order. */
+  private signalChain = new Map<string, Promise<void>>();
   private local: MediaStream | null = null;
   private screen: MediaStream | null = null;
   private closed = false;
@@ -89,6 +91,17 @@ export class HuddleSession {
   }
 
   async handleSignal(from: string, data: HuddleSignal): Promise<void> {
+    if (this.closed) return;
+    // Signals arrive as separate messages but must apply one at a time: a
+    // candidate processed while the offer's setRemoteDescription is still in
+    // flight would be rejected and lost.
+    const previous = this.signalChain.get(from) ?? Promise.resolve();
+    const next = previous.then(() => this.applySignal(from, data)).catch((err) => console.error('huddle signal failed', err));
+    this.signalChain.set(from, next);
+    await next;
+  }
+
+  private async applySignal(from: string, data: HuddleSignal): Promise<void> {
     if (this.closed) return;
     const peer = this.peers.get(from) ?? this.createPeer(from);
     const { pc } = peer;
@@ -167,6 +180,7 @@ export class HuddleSession {
     if (screenTrack && this.screen) peer.screenSender = pc.addTrack(screenTrack, this.screen);
 
     pc.onnegotiationneeded = async () => {
+      if (this.closed || pc.signalingState === 'closed') return;
       try {
         peer.makingOffer = true;
         await pc.setLocalDescription();
@@ -201,6 +215,7 @@ export class HuddleSession {
   private closePeer(id: string): void {
     this.peers.get(id)?.pc.close();
     this.peers.delete(id);
+    this.signalChain.delete(id);
   }
 
   private stopTracks(): void {

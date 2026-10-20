@@ -65,6 +65,14 @@ export async function uploadFile(channelId: string, file: File): Promise<FileInf
   return parse<FileInfo>(res);
 }
 
+export async function uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+  if (file.size > 2 * 1024 * 1024) throw new ApiError(413, 'Avatars can be at most 2 MB');
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const res = await fetch('/api/me/avatar', { method: 'POST', headers: authHeaders(), body: form });
+  return parse<{ avatarUrl: string }>(res);
+}
+
 export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'unauthorized';
 
 /** WebSocket with auth-on-first-frame, keepalive, and reconnect with backoff. */

@@ -15,16 +15,18 @@ interface Props extends MessageActions {
   onClose: () => void;
   onSend: (body: string, fileIds: string[]) => Promise<void>;
   onUpload: (file: File) => Promise<FileInfo>;
+  /** Opens a person's DM (or your own settings). */
+  onOpenUser?: (userId: string) => void;
 }
 
-export function Thread({ channel, me, users, parent, replies, onClose, onSend, onUpload, onReact, onEdit, onDelete }: Props) {
+export function Thread({ channel, me, users, parent, replies, onClose, onSend, onUpload, onReact, onEdit, onDelete, onOpenUser }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [replies]);
 
   const count = replies?.length ?? parent?.replyCount ?? 0;
-  const actions = { canAct: channel.isMember, onReact, onEdit, onDelete };
+  const actions = { canAct: channel.isMember, onReact, onEdit, onDelete, onOpenUser };
 
   return (
     <aside className="thread" aria-label="Thread">

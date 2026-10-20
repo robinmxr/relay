@@ -19,6 +19,8 @@ interface Props extends MessageActions {
   emptyText: string;
   onOpenThread: (messageId: string) => void;
   onLoadOlder: () => Promise<void>;
+  /** Opens a person's DM (or your own settings). */
+  onOpenUser?: (userId: string) => void;
 }
 
 const GROUP_WINDOW_MS = 5 * 60_000;
@@ -94,6 +96,7 @@ export function MessageList(p: Props) {
                   onOpenThread={p.onOpenThread}
                   onEdit={p.onEdit}
                   onDelete={p.onDelete}
+                  onOpenUser={p.onOpenUser}
                 />
               </Fragment>
             );

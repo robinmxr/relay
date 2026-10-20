@@ -8,9 +8,11 @@ A Slack-style team chat. It has:
 - file uploads
 - search
 - typing indicators, presence, unread and mention counts, and desktop notifications
+- profiles with display name, avatar and a status (emoji, text, optional expiry)
+- people search, and clicking a name, avatar or @mention jumps into their DM
 - voice huddles with screen sharing
 
-The layout follows what the reverse engineering of Slack's desktop app found (`~/Work/slack-re/REPORT.md`), built with its own code:
+It's built from scratch as four pieces:
 
 | Piece | Here | What it does |
 | --- | --- | --- |
@@ -29,7 +31,7 @@ npm run dev          # server on :4000, web client on http://localhost:5173
 npm run desktop      # in a second terminal: the desktop app
 ```
 
-Sign in with any email; there's no password yet. Everyone lands in the "Relay HQ" workspace, whose invite code is `relay-hq`.
+Sign in with an email and password; accounts come with a one-time recovery code (there is no email server, so that code is the password-reset path). Accounts created before passwords existed start with the password `password` and are made to pick their own at first sign-in. The security tab in settings lists your active sessions — each with its last-seen time and user agent — and lets you revoke one, or all others at once. Everyone lands in the "Relay HQ" workspace, whose invite code is `relay-hq`.
 
 **Single port (production style):** `npm run build && npm start` serves the built client and the API together on http://localhost:4000.
 
@@ -43,13 +45,14 @@ Sign in with any email; there's no password yet. Everyone lands in the "Relay HQ
 ### Checks
 
 ```sh
-npm test             # server integration tests (13)
+npm test             # server integration tests (20)
 npm run typecheck    # all workspaces
 ```
 
 ## Features and how they work
 
-- **Workspaces.** Users are global; channels, DMs, members and search belong to a workspace. Creating one makes you its owner. Others join with its invite code: the person icon in the sidebar header shows the code, and the + in the left rail joins with it. Non-members get 404 for everything in a workspace.
+- **Workspaces.** Users are global; channels, DMs, members and search belong to a workspace. Creating one makes you its owner. Others join with its invite code: the invite panel in the sidebar header shows the code, and the + in the left rail joins with it. Non-members get 404 for everything in a workspace.
+- **Channel and workspace admin.** The gear in a channel header opens channel settings: rename, topic, member list (any member may edit; DMs have none), adding and removing people from private channels, leaving, and archiving. Archived channels stay readable but refuse messages, edits, reactions and joins until restored; they're marked with 📦 in the sidebar and drop out of the browse list. The people icon in the sidebar footer opens the workspace roster page — searchable by name or email, with a Message button on every row that opens that person's DM. The owner can rename the workspace, remove members (which drops them from its channels) and reset a member's password: the server generates a one-time password to hand over in person, signs out all their sessions, kills their old recovery code and forces a new password at next sign-in.
 - **Messages.**
   - Sending is a POST; the server stores the message and pushes `message.created` to every channel member's socket.
   - Authors can edit (`PATCH`) and delete (`DELETE`) their own messages. Deleting a message that has replies leaves a "This message was deleted" placeholder, so the thread stays readable.
@@ -59,6 +62,7 @@ npm run typecheck    # all workspaces
   - Downloads use signed URLs (HMAC, valid 1–2 days), so `<img src>` works without an auth header.
   - Only PNG, JPEG, GIF and WebP display inline. Everything else downloads as `application/octet-stream`, so an uploaded HTML or SVG file never runs.
 - **Search.** Postgres full-text search with prefix matching ("deplo fri" finds "Deploying on Friday"). It only covers channels you belong to in the current workspace.
+- **Profile and settings.** Clicking a message author, an avatar or an @mention opens that person's DM; clicking your own name, avatar or mention opens your settings instead. Settings is a standalone page (deep-linkable at `/settings`, or ⌘, on macOS — Ctrl+, elsewhere) with sections in the URL: profile (display name, avatar upload/remove, and a status with emoji, text and an optional expiry — expired statuses are treated as unset), notifications (sound, desktop notifications, and whether to notify for every message or only mentions and DMs), appearance (theme: system, light or dark), and security (change password, recovery code, active sessions). Pages open over the running workspace, so a huddle keeps going while you're in them, and the browser's Back button (or Escape) returns you to chat — ⌘K / Ctrl+K jumps back to search. Preferences persist server-side in `/api/me/settings`, so they follow you across devices. Avatars live alongside file uploads and are served through signed URLs, like message attachments.
 - **Huddles.**
   - Voice calls with screen sharing, over WebRTC. It's a mesh: each participant connects directly to each other one, which suits small groups.
   - The server only relays signalling, and only between members of the same huddle. Leaving, or closing the socket, removes you.
@@ -72,7 +76,7 @@ npm run typecheck    # all workspaces
 
 ### Desktop shell security
 
-These choices follow what the Slack analysis found:
+Hardening choices:
 
 - Every window gets frozen `webPreferences`: `contextIsolation`, `sandbox`, no `nodeIntegration`, no `<webview>`, and `app.enableSandbox()` is called.
 - The preload exposes only `window.desktop` (`notify`, `setBadge`, `onDeepLink`), never `ipcRenderer`.
@@ -106,7 +110,7 @@ npm pack           # inspect the tarball; npm publish also runs the build
 
 ## Known gaps
 
-- **Sign-in is development-only.** Any email signs in. Disable it with `RELAY_DEV_SIGNIN=false` once real auth (magic links or SSO) exists.
+- **Passwords, not full auth.** Sign-up, sign-in, recovery codes, a session list (`/api/me/sessions`) and owner password resets (a one-time password handed over in person), but no email delivery and no SSO. `RELAY_DEV_SIGNIN=true` re-opens passwordless email sign-in, for bootstrapping only.
 - **Huddles live on one server process.** Huddle membership is kept in memory, so with several processes behind Redis, everyone in one huddle must reach the same process (sticky sessions). The mesh topology tops out around 5 or 6 people; beyond that it needs an SFU.
 - **Presence after a crash.** If a server process crashes, its users read as offline after 60 seconds, but no "went offline" event is sent.
 - **Files are on local disk.** There's no S3 backend yet, and files uploaded but never sent aren't cleaned up.

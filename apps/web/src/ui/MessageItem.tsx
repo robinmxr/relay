@@ -19,13 +19,17 @@ interface Props {
   onOpenThread?: (messageId: string) => void;
   onEdit?: (messageId: string, body: string) => Promise<void>;
   onDelete?: (messageId: string) => Promise<void>;
+  /** Opens a person: their DM with you, or your own settings when it's you. */
+  onOpenUser?: (userId: string) => void;
 }
 
-export function MessageItem({ message: m, me, users, compact, highlighted, canAct, onReact, onOpenThread, onEdit, onDelete }: Props) {
+export function MessageItem({ message: m, me, users, compact, highlighted, canAct, onReact, onOpenThread, onEdit, onDelete, onOpenUser }: Props) {
   const [editing, setEditing] = useState(false);
   const mine = m.user.id === me.id;
   const mentionsMe = m.mentions.includes(me.id);
   const react = (emoji: string) => void onReact?.(m.id, emoji).catch(console.error);
+  const openUser = () => onOpenUser?.(m.user.id);
+  const userTitle = mine ? 'Your profile' : `Message ${m.user.name}`;
 
   const remove = () => {
     if (window.confirm('Delete this message? This cannot be undone.')) void onDelete?.(m.id).catch((err) => window.alert(err.message));
@@ -41,6 +45,10 @@ export function MessageItem({ message: m, me, users, compact, highlighted, canAc
           <time className="msg-side-time" dateTime={m.createdAt}>
             {formatTime(m.createdAt)}
           </time>
+        ) : onOpenUser ? (
+          <button className="avatar-btn" onClick={openUser} title={userTitle} aria-label={userTitle}>
+            <Avatar user={m.user} size={36} />
+          </button>
         ) : (
           <Avatar user={m.user} size={36} />
         )}
@@ -48,7 +56,13 @@ export function MessageItem({ message: m, me, users, compact, highlighted, canAc
       <div className="msg-main">
         {!compact && (
           <div className="msg-head">
-            <span className="msg-author">{mine ? `${m.user.name} (you)` : m.user.name}</span>
+            {onOpenUser ? (
+              <button className="msg-author as-btn" onClick={openUser} title={userTitle}>
+                {mine ? `${m.user.name} (you)` : m.user.name}
+              </button>
+            ) : (
+              <span className="msg-author">{mine ? `${m.user.name} (you)` : m.user.name}</span>
+            )}
             <time dateTime={m.createdAt}>{formatTime(m.createdAt)}</time>
           </div>
         )}
@@ -68,7 +82,7 @@ export function MessageItem({ message: m, me, users, compact, highlighted, canAc
         ) : (
           m.body && (
             <div className="msg-body">
-              {renderBody(m.body, users, me.id)}
+              {renderBody(m.body, users, me.id, onOpenUser)}
               {m.editedAt && <span className="edited muted"> (edited)</span>}
             </div>
           )

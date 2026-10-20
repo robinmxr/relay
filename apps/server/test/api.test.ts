@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import WebSocket from 'ws';
-import type { Channel, FileInfo, Message, ServerEvent, SignInResponse, UserWithPresence, Workspace } from '@relay/shared';
+import type { Channel, FileInfo, MeResponse, Message, ServerEvent, SessionInfo, SignInResponse, UserSettings, UserWithPresence, Workspace } from '@relay/shared';
 import { buildApp } from '../src/app';
 
 let ctx: Awaited<ReturnType<typeof buildApp>>;
@@ -14,7 +14,7 @@ let filesDir: string;
 
 before(async () => {
   filesDir = await mkdtemp(path.join(tmpdir(), 'relay-test-'));
-  ctx = await buildApp({ devSignin: true, filesDir });
+  ctx = await buildApp({ devSignin: true, filesDir, limits: { signinPerMinute: 1000 } });
   await ctx.app.listen({ port: 0, host: '127.0.0.1' });
   host = `127.0.0.1:${(ctx.app.server.address() as AddressInfo).port}`;
 });
@@ -332,4 +332,296 @@ test('sign-in is rate limited per IP', async () => {
     await limited.app.close();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('password accounts: signup, signin, sessions, change, recovery', async () => {
+  const signed = await call<SignInResponse>('POST', '/api/auth/signup', undefined, {
+    email: 'pat@example.com',
+    name: 'Pat',
+    password: 'correct-horse-battery',
+  });
+  assert.equal(signed.status, 200);
+  assert.equal(signed.json.passwordSet, true);
+  assert.ok(signed.json.recoveryCode);
+  assert.equal((await call<MeResponse>('GET', '/api/me', signed.json.token)).json.passwordSet, true);
+
+  assert.equal((await call('POST', '/api/auth/signup', undefined, { email: 'pat@example.com', password: 'correct-horse-battery' })).status, 409);
+  assert.equal((await call('POST', '/api/auth/signup', undefined, { email: 'weak@example.com', password: 'short' })).status, 400);
+
+  // Wrong, missing and unknown-email passwords all read the same.
+  assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'pat@example.com', password: 'wrong' })).status, 401);
+  assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'pat@example.com' })).status, 401);
+  assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'nobody-here@example.com', password: 'whatever123' })).status, 401);
+
+  const second = await call<SignInResponse>('POST', '/api/auth/signin', undefined, { email: 'pat@example.com', password: 'correct-horse-battery' });
+  assert.equal(second.status, 200);
+
+  const sessions = await call<SessionInfo[]>('GET', '/api/me/sessions', second.json.token);
+  assert.equal(sessions.json.length, 2);
+  const current = sessions.json.find((s) => s.current)!;
+  const other = sessions.json.find((s) => !s.current)!;
+  assert.ok(current.id);
+  // The other session is the one from signup.
+  assert.equal((await call('GET', '/api/workspaces', signed.json.token)).status, 200);
+  assert.equal((await call('DELETE', `/api/me/sessions/${other.id}`, second.json.token)).status, 200);
+  assert.equal((await call('GET', '/api/workspaces', signed.json.token)).status, 401);
+  assert.equal((await call('DELETE', `/api/me/sessions/${other.id}`, second.json.token)).status, 404);
+
+  // Changing the password signs other devices out and issues a fresh recovery code.
+  const stale = await call<SignInResponse>('POST', '/api/auth/signin', undefined, { email: 'pat@example.com', password: 'correct-horse-battery' });
+  assert.equal((await call('POST', '/api/me/password', second.json.token, { currentPassword: 'nope', password: 'brand-new-pass1' })).status, 403);
+  const changed = await call<{ recoveryCode: string }>('POST', '/api/me/password', second.json.token, {
+    currentPassword: 'correct-horse-battery',
+    password: 'brand-new-pass1',
+  });
+  assert.equal(changed.status, 200);
+  assert.notEqual(changed.json.recoveryCode, signed.json.recoveryCode);
+  assert.equal((await call('GET', '/api/workspaces', stale.json.token)).status, 401);
+  assert.equal((await call('GET', '/api/workspaces', second.json.token)).status, 200);
+
+  // Recovery: the wrong code fails, the real one works and rotates the code.
+  assert.equal(
+    (await call('POST', '/api/auth/recover', undefined, { email: 'pat@example.com', code: 'not-the-code-1', password: 'recovered-pass-9' })).status,
+    401,
+  );
+  const recovered = await call<SignInResponse>('POST', '/api/auth/recover', undefined, {
+    email: 'pat@example.com',
+    code: changed.json.recoveryCode,
+    password: 'recovered-pass-9',
+  });
+  assert.equal(recovered.status, 200);
+  assert.notEqual(recovered.json.recoveryCode, changed.json.recoveryCode);
+  // Recovery kills every session it did not create, and the used code is spent.
+  assert.equal((await call('GET', '/api/workspaces', second.json.token)).status, 401);
+  assert.equal(
+    (await call('POST', '/api/auth/recover', undefined, { email: 'pat@example.com', code: changed.json.recoveryCode, password: 'again-pass-10' })).status,
+    401,
+  );
+  assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'pat@example.com', password: 'correct-horse-battery' })).status, 401);
+  assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'pat@example.com', password: 'recovered-pass-9' })).status, 200);
+});
+
+test('without dev sign-in, accounts need passwords', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'relay-prod-'));
+  const prod = await buildApp({ devSignin: false, filesDir: dir });
+  try {
+    // Email alone no longer creates or opens anything.
+    assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'ghost@example.com' }, prod.app)).status, 401);
+    assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'ghost@example.com', password: 'whatever123' }, prod.app)).status, 401);
+
+    // Sign-up is the way in.
+    const su = await call<SignInResponse>('POST', '/api/auth/signup', undefined, { email: 'ghost@example.com', password: 'ghost-pass-12' }, prod.app);
+    assert.equal(su.status, 200);
+    assert.equal(
+      (await call('POST', '/api/auth/signin', undefined, { email: 'ghost@example.com', password: 'ghost-pass-12' }, prod.app)).status,
+      200,
+    );
+
+    // The forced-change path: must_change lets the first password be replaced without asking for it back.
+    await prod.ctx.db.query('update users set must_change = true where email = $1', ['ghost@example.com']);
+    assert.equal((await call<MeResponse>('GET', '/api/me', su.json.token, undefined, prod.app)).json.mustChange, true);
+    assert.equal((await call('POST', '/api/me/password', su.json.token, { password: 'chosen-pass-13' }, prod.app)).status, 200);
+    assert.equal((await call<MeResponse>('GET', '/api/me', su.json.token, undefined, prod.app)).json.mustChange, false);
+    // The starting password no longer works, the chosen one does.
+    assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'ghost@example.com', password: 'ghost-pass-12' }, prod.app)).status, 401);
+    assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'ghost@example.com', password: 'chosen-pass-13' }, prod.app)).status, 200);
+
+    // An account that somehow lost its password is told how to get help, not let in.
+    await prod.ctx.db.query('update users set password_hash = null where email = $1', ['ghost@example.com']);
+    const refused = await call('POST', '/api/auth/signin', undefined, { email: 'ghost@example.com' }, prod.app);
+    assert.equal(refused.status, 403);
+  } finally {
+    await prod.app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+async function uploadAvatar(token: string, mime: string, content: Buffer) {
+  const boundary = '----relayavatar';
+  const payload = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="avatar"\r\nContent-Type: ${mime}\r\n\r\n`),
+    content,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const res = await ctx.app.inject({
+    method: 'POST',
+    url: '/api/me/avatar',
+    headers: { authorization: `Bearer ${token}`, 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload,
+  });
+  return { status: res.statusCode, json: res.json() as { avatarUrl: string } };
+}
+
+test('profile: name, status, expiry, and the members hear about it', async () => {
+  const s = await signIn('profile-test@example.com', 'Pat');
+
+  // A rename shows up on /me and reaches other members over their sockets.
+  const watcher = await signIn('profile-watch@example.com', 'Walt');
+  const ws = await connect(watcher.token);
+  const renamed = await call<MeResponse>('PATCH', '/api/me', s.token, { name: 'Patricia' });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.json.name, 'Patricia');
+  await ws.next('members.changed');
+
+  // A timed status lands in the workspace member list.
+  const status = await call<MeResponse>('PATCH', '/api/me', s.token, { status: { emoji: '🎧', text: 'in a huddle', expiresInMinutes: 60 } });
+  assert.equal(status.status, 200);
+  assert.equal(status.json.status?.emoji, '🎧');
+  assert.ok(status.json.status?.expiresAt);
+  const users = await call<UserWithPresence[]>('GET', `/api/workspaces/${hq}/users`, s.token);
+  assert.equal(users.json.find((u) => u.id === status.json.id)?.status?.text, 'in a huddle');
+
+  // Once the expiry passes, the status reads back as unset.
+  await ctx.ctx.db.query('update users set status_expires_at = now() - interval \'1 minute\' where id = $1', [status.json.id]);
+  assert.equal((await call<MeResponse>('GET', '/api/me', s.token)).json.status, null);
+
+  // Clearing works; nonsense is rejected.
+  assert.equal((await call('PATCH', '/api/me', s.token, { status: null })).status, 200);
+  assert.equal((await call('PATCH', '/api/me', s.token, { status: { emoji: '', text: 'x' } })).status, 400);
+  assert.equal((await call('PATCH', '/api/me', s.token, {})).status, 400);
+  ws.close();
+});
+
+test('avatars: upload, signed serve, replace, remove', async () => {
+  const s = await signIn('avatar-test@example.com', 'Ava');
+  const png = Buffer.from('89504e470d0a1a0a0000000d494844520000000100000001080600000037', 'hex');
+
+  const up = await uploadAvatar(s.token, 'image/png', png);
+  assert.equal(up.status, 200);
+  assert.match(up.json.avatarUrl, /^\/api\/avatars\//);
+
+  // The signed URL serves the image with no auth header, like <img> needs.
+  const img = await ctx.app.inject({ method: 'GET', url: up.json.avatarUrl });
+  assert.equal(img.statusCode, 200);
+  assert.equal(img.headers['content-type'], 'image/png');
+  assert.equal((await call<MeResponse>('GET', '/api/me', s.token)).json.avatarUrl, up.json.avatarUrl);
+  const users = await call<UserWithPresence[]>('GET', `/api/workspaces/${hq}/users`, s.token);
+  assert.equal(users.json.find((u) => u.email === s.user.email)?.avatarUrl, up.json.avatarUrl);
+
+  // A tampered signature gets nowhere.
+  const bad = await ctx.app.inject({ method: 'GET', url: up.json.avatarUrl.replace('sig=', 'sig=x') });
+  assert.equal(bad.statusCode, 403);
+
+  // Replacing changes the URL (cache-busting), so the browser fetches the new picture.
+  const replaced = await uploadAvatar(s.token, 'image/png', png);
+  assert.equal(replaced.status, 200);
+  assert.notEqual(replaced.json.avatarUrl, up.json.avatarUrl);
+  assert.equal((await call<MeResponse>('GET', '/api/me', s.token)).json.avatarUrl, replaced.json.avatarUrl);
+  assert.equal((await ctx.app.inject({ method: 'GET', url: replaced.json.avatarUrl })).statusCode, 200);
+
+  // Removing clears it everywhere.
+  assert.equal((await call('DELETE', '/api/me/avatar', s.token)).status, 200);
+  assert.equal((await call<MeResponse>('GET', '/api/me', s.token)).json.avatarUrl, null);
+  assert.equal((await ctx.app.inject({ method: 'GET', url: up.json.avatarUrl })).statusCode, 404);
+
+  // Only images, please.
+  assert.equal((await uploadAvatar(s.token, 'text/plain', Buffer.from('hello'))).status, 400);
+});
+
+test('settings: defaults, partial patch, persistence', async () => {
+  const s = await signIn('settings-test@example.com', 'Set');
+
+  // A fresh account gets the defaults.
+  const defaults = await call<UserSettings>('GET', '/api/me/settings', s.token);
+  assert.equal(defaults.status, 200);
+  assert.deepEqual(defaults.json, { theme: 'system', sound: true, desktopNotifications: true, notifyLevel: 'all' });
+
+  // A partial patch keeps the rest, and is really stored rather than echoed.
+  const patched = await call<UserSettings>('PATCH', '/api/me/settings', s.token, { theme: 'dark', notifyLevel: 'mentions' });
+  assert.deepEqual(patched.json, { theme: 'dark', sound: true, desktopNotifications: true, notifyLevel: 'mentions' });
+  assert.equal((await call<UserSettings>('GET', '/api/me/settings', s.token)).json.theme, 'dark');
+
+  // Bad values are rejected.
+  assert.equal((await call('PATCH', '/api/me/settings', s.token, { theme: 'neon' })).status, 400);
+});
+
+test('workspace admin: roles, rename, removal, owner password reset', async () => {
+  const owner = await signIn('admin-owner@example.com', 'Olive');
+  const member = await signIn('admin-member@example.com', 'Mo');
+  const ws = (await call<Workspace>('POST', '/api/workspaces', owner.token, { name: 'Adminland' })).json;
+  assert.equal((await call('POST', '/api/workspaces/join', member.token, { code: ws.joinCode })).status, 200);
+
+  // Roles ride along in the member list.
+  const users = await call<UserWithPresence[]>('GET', `/api/workspaces/${ws.id}/users`, member.token);
+  assert.deepEqual(users.json.map((u) => [u.name, u.role]), [
+    ['Mo', 'member'],
+    ['Olive', 'owner'],
+  ]);
+
+  // Only the owner renames, and everyone sees it.
+  assert.equal((await call('PATCH', `/api/workspaces/${ws.id}`, member.token, { name: 'Nope' })).status, 403);
+  assert.equal((await call('PATCH', `/api/workspaces/${ws.id}`, owner.token, { name: 'Renamed Land' })).status, 200);
+  assert.equal((await call<Workspace[]>('GET', '/api/workspaces', member.token)).json.find((w) => w.id === ws.id)?.name, 'Renamed Land');
+
+  // Removal is owner-only, and nobody removes themselves: the member gets 403, the owner 400.
+  assert.equal((await call('DELETE', `/api/workspaces/${ws.id}/members/${member.user.id}`, member.token)).status, 403);
+  assert.equal((await call('DELETE', `/api/workspaces/${ws.id}/members/${owner.user.id}`, owner.token)).status, 400);
+
+  // The member sets a password of their own first.
+  assert.equal((await call('POST', '/api/me/password', member.token, { password: 'member-pass-1' })).status, 200);
+
+  // The owner's reset: a one-time password, dead sessions, dead old password.
+  const reset = await call<{ tempPassword: string }>('POST', `/api/workspaces/${ws.id}/members/${member.user.id}/reset-password`, owner.token);
+  assert.equal(reset.status, 200);
+  assert.match(reset.json.tempPassword, /^[A-Za-z0-9]{12}$/);
+  assert.equal((await call('GET', '/api/me', member.token)).status, 401);
+  assert.equal((await call('POST', '/api/auth/signin', undefined, { email: 'admin-member@example.com', password: 'member-pass-1' })).status, 401);
+  const temp = await call<SignInResponse>('POST', '/api/auth/signin', undefined, { email: 'admin-member@example.com', password: reset.json.tempPassword });
+  assert.equal(temp.status, 200);
+  assert.equal((await call<MeResponse>('GET', '/api/me', temp.json.token)).json.mustChange, true);
+  // Members cannot reset anyone.
+  assert.equal(
+    (await call('POST', `/api/workspaces/${ws.id}/members/${owner.user.id}/reset-password`, temp.json.token)).status,
+    403,
+  );
+
+  // The owner removes the member; their channels go with them.
+  assert.equal((await call('DELETE', `/api/workspaces/${ws.id}/members/${member.user.id}`, owner.token)).status, 200);
+  assert.equal((await call('GET', `/api/workspaces/${ws.id}/channels`, temp.json.token)).status, 404);
+});
+
+test('channel admin: rename, archive, leave, private membership', async () => {
+  const boss = await signIn('chan-boss@example.com', 'Carol');
+  const friend = await signIn('chan-friend@example.com', 'Finn');
+  const stranger = await signIn('chan-stranger@example.com', 'Sam');
+  const ws = (await call<Workspace>('POST', '/api/workspaces', boss.token, { name: 'Channel Land' })).json;
+  await call('POST', '/api/workspaces/join', friend.token, { code: ws.joinCode });
+  await call('POST', '/api/workspaces/join', stranger.token, { code: ws.joinCode });
+
+  // Private channels reveal nothing to non-members.
+  const chan = (await call<{ id: string }>('POST', `/api/workspaces/${ws.id}/channels`, boss.token, { name: 'secrets', isPrivate: true })).json;
+  assert.equal((await call('PATCH', `/api/channels/${chan.id}`, stranger.token, { name: 'peek' })).status, 404);
+  assert.equal((await call('GET', `/api/channels/${chan.id}/members`, stranger.token)).status, 404);
+
+  // Members are added one at a time; any member may add.
+  assert.equal((await call('POST', `/api/channels/${chan.id}/members`, boss.token, { userId: friend.user.id })).status, 200);
+  // The creator is the first member, so adding friend makes two.
+  assert.equal((await call('GET', `/api/channels/${chan.id}/members`, friend.token)).json.length, 2);
+  assert.equal((await call('POST', `/api/channels/${chan.id}/members`, friend.token, { userId: stranger.user.id })).status, 200);
+  assert.equal((await call('GET', `/api/channels/${chan.id}/members`, stranger.token)).json.length, 3);
+
+  // Rename by any member; duplicate names are refused.
+  assert.equal((await call('PATCH', `/api/channels/${chan.id}`, friend.token, { name: 'lounge', topic: 'coffee' })).status, 200);
+  await call('POST', `/api/workspaces/${ws.id}/channels`, boss.token, { name: 'cafe' });
+  assert.equal((await call('PATCH', `/api/channels/${chan.id}`, boss.token, { name: 'cafe' })).status, 409);
+
+  // Archiving keeps the channel readable but silent; restoring brings it back.
+  assert.equal((await call('POST', `/api/channels/${chan.id}/messages`, friend.token, { body: 'before' })).status, 200);
+  assert.equal((await call('POST', `/api/channels/${chan.id}/archive`, friend.token, { archived: true })).status, 200);
+  assert.equal((await call('POST', `/api/channels/${chan.id}/messages`, friend.token, { body: 'after' })).status, 403);
+  assert.equal((await channelsOf(friend.token, ws.id)).find((c) => c.id === chan.id)?.archivedAt !== null, true);
+  assert.equal((await call('POST', `/api/channels/${chan.id}/archive`, boss.token, { archived: false })).status, 200);
+  assert.equal((await call('POST', `/api/channels/${chan.id}/messages`, friend.token, { body: 'after' })).status, 200);
+
+  // Leaving is yours to do; removing someone else needs to be from a private channel.
+  assert.equal((await call('DELETE', `/api/channels/${chan.id}/members/me`, friend.token)).status, 200);
+  assert.equal((await call('GET', `/api/channels/${chan.id}/messages`, friend.token)).status, 404);
+  assert.equal((await call('DELETE', `/api/channels/${chan.id}/members/${stranger.user.id}`, boss.token)).status, 200);
+  assert.equal((await call('GET', `/api/channels/${chan.id}/messages`, stranger.token)).status, 404);
+
+  // DMs refuse rename, archive and leave alike.
+  const dm = (await call<{ id: string }>('POST', `/api/workspaces/${ws.id}/dms`, boss.token, { userId: friend.user.id })).json;
+  assert.equal((await call('PATCH', `/api/channels/${dm.id}`, boss.token, { name: 'x' })).status, 400);
+  assert.equal((await call('POST', `/api/channels/${dm.id}/archive`, boss.token, { archived: true })).status, 400);
+  assert.equal((await call('DELETE', `/api/channels/${dm.id}/members/me`, boss.token)).status, 400);
 });

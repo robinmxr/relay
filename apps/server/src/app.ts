@@ -18,6 +18,7 @@ import { registerRealtime } from './realtime';
 import { authRoutes } from './routes/auth';
 import { channelRoutes } from './routes/channels';
 import { fileRoutes } from './routes/files';
+import { meRoutes } from './routes/me';
 import { messageRoutes } from './routes/messages';
 import { workspaceRoutes } from './routes/workspaces';
 
@@ -82,7 +83,7 @@ export async function buildApp(opts: AppOptions) {
 
   app.decorateRequest('user', null);
   app.addHook('onRequest', async (req) => {
-    req.user = await userFromToken(db, bearer(req.headers.authorization));
+    req.user = await userFromToken(db, ctx.files, bearer(req.headers.authorization));
   });
 
   app.addHook('onSend', async (_req, reply) => {
@@ -114,6 +115,7 @@ export async function buildApp(opts: AppOptions) {
   await app.register(websocket, { options: { maxPayload: 64 * 1024 } });
 
   authRoutes(app, ctx);
+  meRoutes(app, ctx);
   workspaceRoutes(app, ctx);
   channelRoutes(app, ctx);
   messageRoutes(app, ctx);

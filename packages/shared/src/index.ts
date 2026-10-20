@@ -4,10 +4,22 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /** Signed URL, valid for a day or two. Null when the user has no avatar. */
+  avatarUrl?: string | null;
+  /** A set status with emoji; treated as unset once expiresAt has passed. */
+  status?: UserStatus | null;
+}
+
+export interface UserStatus {
+  emoji: string;
+  text: string;
+  expiresAt: string | null;
 }
 
 export interface UserWithPresence extends User {
   online: boolean;
+  /** In the workspace: 'owner' can manage members; everyone else is a 'member'. */
+  role?: 'owner' | 'member';
 }
 
 export interface Workspace {
@@ -35,6 +47,8 @@ export interface Channel {
   dmUser: User | null;
   /** User ids currently in this channel's huddle. */
   huddle: string[];
+  /** Set when archived: readable, but no new messages, huddles or joins. */
+  archivedAt: string | null;
 }
 
 export interface Reaction {
@@ -78,6 +92,38 @@ export interface MessagePage {
 export interface SignInResponse {
   token: string;
   user: User;
+  /** False for accounts that predate passwords (or dev sign-in): a password must be set. */
+  passwordSet: boolean;
+  /** Shown exactly once, at signup, recovery or password change. */
+  recoveryCode?: string;
+}
+
+/** GET /api/me: the signed-in user plus what the client needs to gate the set-password flow. */
+export interface MeResponse extends User {
+  passwordSet: boolean;
+  /** True for accounts given the default starting password: a new one must be set now. */
+  mustChange: boolean;
+}
+
+export interface SessionInfo {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  userAgent: string | null;
+  /** The session making this request. */
+  current: boolean;
+}
+
+export interface UserSettings {
+  theme: 'system' | 'light' | 'dark';
+  sound: boolean;
+  desktopNotifications: boolean;
+  /** 'mentions' also notifies for direct messages. */
+  notifyLevel: 'all' | 'mentions';
+}
+
+export interface AvatarResponse {
+  avatarUrl: string;
 }
 
 export interface RtcConfig {
