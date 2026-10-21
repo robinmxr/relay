@@ -19,7 +19,7 @@ import {
   type WebPreferences,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { fingerprintOf, format } from './certs';
+import { fingerprintOf, format, matchesPin } from './certs';
 import { forgetFingerprint, trustedFingerprint, trustFingerprint } from './settings';
 import { shouldTrust } from './trust';
 
@@ -130,8 +130,8 @@ function createMainWindow(): void {
     mainWindow = null;
   });
   // A rejected self-signed certificate shows up here first; offer to pin it, then reload.
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, _desc, validatedURL) => {
-    if (mainWindow) void offerPin(mainWindow, validatedURL || WEB_URL, errorCode);
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, _desc, validatedURL, isMainFrame) => {
+    if (mainWindow && isMainFrame) void offerPin(mainWindow, validatedURL || WEB_URL, errorCode);
   });
   loadApp();
 }
@@ -252,13 +252,52 @@ function loadApp(): void {
   });
 }
 
+let offering = false;
+
 async function offerPin(win: BrowserWindow, url: string, errorCode: number): Promise<void> {
-  if (errorCode >= 0) return; // Not a network/TLS failure.
+  if (errorCode >= 0 || errorCode === -3) return; // Not a network/TLS failure, or just aborted.
   const origin = originOf(url);
-  if (!origin || origin !== APP_ORIGIN) return;
-  if (trustedFingerprint(origin)) return; // Already decided: a pinned cert that stopped matching is a real error.
+  if (!origin || origin !== APP_ORIGIN || offering) return;
+  offering = true;
+  try {
+    await explainOrOfferPin(win, origin);
+  } finally {
+    offering = false;
+  }
+}
+
+async function explainOrOfferPin(win: BrowserWindow, origin: string): Promise<void> {
   const fingerprint = await fetchFingerprint(origin);
-  if (!fingerprint) return;
+  const pinned = trustedFingerprint(origin);
+  if (!fingerprint || (pinned && matchesPin(fingerprint, pinned))) {
+    // Down, wrong address, or a failure that has nothing to do with the certificate.
+    // Say so rather than leaving a blank window.
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Cannot reach the server',
+      message: `Relay could not load ${origin}`,
+      detail: 'Check that the server is running and that this computer is on the same network, then try again.',
+      buttons: ['Close', 'Try again'],
+      defaultId: 1,
+      cancelId: 0,
+    });
+    if (response === 1) win.loadURL(WEB_URL);
+    return;
+  }
+  if (pinned) {
+    // A pinned certificate that stopped matching is a real error: never offer to accept it here.
+    await dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Server certificate changed',
+      message: 'The server is presenting a different certificate than the one you trusted',
+      detail:
+        `${origin}\n\nTrusted:\n${format(pinned)}\n\nNow presented:\n${format(fingerprint)}\n\n` +
+        'This happens when the server is re-keyed, or when another machine is impersonating it. ' +
+        'If the server was re-keyed, use Help → Server certificate… to forget the old one.',
+      buttons: ['Close'],
+    });
+    return;
+  }
   const { response } = await dialog.showMessageBox(win, {
     type: 'warning',
     title: 'Untrusted server certificate',

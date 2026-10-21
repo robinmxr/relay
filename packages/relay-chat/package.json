@@ -1,6 +1,6 @@
 {
   "name": "relay-chat",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Self-hosted team chat: channels, threads, files, search and voice huddles. Web client, server and an optional desktop app.",
   "license": "MIT",
   "author": "Reajul Islam",

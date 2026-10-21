@@ -9,15 +9,19 @@ export function normalise(fingerprint: string): string {
   return fingerprint.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
 }
 
-/** Normalised SHA-256 fingerprint of a certificate (PEM string, DER buffer, or `{ data }`), or null. */
+/**
+ * Normalised SHA-256 fingerprint of a certificate, or null. Takes a PEM string, a DER buffer, or
+ * Electron's `{ data }`, whose `data` is a complete PEM (header lines included); a bare base64
+ * body is accepted too.
+ */
 export function fingerprintOf(certificate: { data: string } | string | Buffer): string | null {
   try {
-    const x509 =
-      typeof certificate === 'string'
-        ? new X509Certificate(certificate)
-        : Buffer.isBuffer(certificate)
-          ? new X509Certificate(certificate)
-          : new X509Certificate(`-----BEGIN CERTIFICATE-----\n${certificate.data}\n-----END CERTIFICATE-----\n`);
+    const source = typeof certificate === 'string' || Buffer.isBuffer(certificate) ? certificate : certificate.data;
+    const pemOrDer =
+      typeof source === 'string' && !source.includes('-----BEGIN')
+        ? `-----BEGIN CERTIFICATE-----\n${source.trim()}\n-----END CERTIFICATE-----\n`
+        : source;
+    const x509 = new X509Certificate(pemOrDer);
     return normalise(x509.fingerprint256);
   } catch {
     return null;
