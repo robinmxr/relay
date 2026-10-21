@@ -75,18 +75,44 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare the signing credentials
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          MAC_APPLE_ID: ${{ secrets.MAC_APPLE_ID }}
+          MAC_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MAC_APPLE_APP_SPECIFIC_PASSWORD }}
+          MAC_APPLE_TEAM_ID: ${{ secrets.MAC_APPLE_TEAM_ID }}
+        run: |
+          # electron-builder reads an empty CSC_LINK as a path to a certificate, so these are only
+          # set when there is a certificate to use. Without one the build is ad-hoc signed on
+          # macOS and unsigned elsewhere: it runs, but users have to allow the app themselves.
+          if [ "$PLATFORM" = "mac" ]; then
+            link="$MAC_CSC_LINK"; password="$MAC_CSC_KEY_PASSWORD"
+          else
+            link="$WIN_CSC_LINK"; password="$WIN_CSC_KEY_PASSWORD"
+          fi
+          if [ -n "$link" ]; then
+            echo "CSC_LINK=$link" >> "$GITHUB_ENV"
+            echo "CSC_KEY_PASSWORD=$password" >> "$GITHUB_ENV"
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=true" >> "$GITHUB_ENV"
+            if [ -n "$MAC_APPLE_ID" ]; then
+              echo "APPLE_ID=$MAC_APPLE_ID" >> "$GITHUB_ENV"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$MAC_APPLE_APP_SPECIFIC_PASSWORD" >> "$GITHUB_ENV"
+              echo "APPLE_TEAM_ID=$MAC_APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Build the installers
         env:
           RELAY_DESKTOP_WEB_URL: ${{ vars.RELAY_DESKTOP_WEB_URL }}
           RELAY_DESKTOP_CERT_FINGERPRINT: ${{ vars.RELAY_DESKTOP_CERT_FINGERPRINT }}
           RELAY_DESKTOP_UPDATE_URL: ${{ vars.RELAY_DESKTOP_UPDATE_URL }}
-          # No certificate means an ad-hoc signed build, which still runs.
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (matrix.platform == 'mac' && secrets.MAC_CSC_LINK != '') || (matrix.platform == 'win' && secrets.WIN_CSC_LINK != '') }}
-          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WIN_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.MAC_APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MAC_APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.MAC_APPLE_TEAM_ID }}
         run: npm run desktop:dist
 
       - name: Collect the artifacts
