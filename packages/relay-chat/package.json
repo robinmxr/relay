@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "description": "Self-hosted team chat: channels, threads, files, search and voice huddles. Web client, server and an optional desktop app.",
   "license": "UNLICENSED",
+  "author": "Reajul Islam",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robinmxr/relay.git",
+    "directory": "packages/relay-chat"
+  },
+  "homepage": "https://github.com/robinmxr/relay/tree/main/packages/relay-chat#readme",
+  "bugs": {
+    "url": "https://github.com/robinmxr/relay/issues"
+  },
   "type": "module",
   "bin": {
     "relay-chat": "bin/relay-chat.js"
@@ -33,5 +43,8 @@
   },
   "optionalDependencies": {
     "electron": "33.4.11"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
