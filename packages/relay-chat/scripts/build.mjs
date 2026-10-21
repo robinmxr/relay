@@ -34,13 +34,14 @@ cpSync(path.join(root, 'apps/server/src/migrations'), path.join(pkgDir, 'dist/mi
 cpSync(path.join(root, 'apps/web/dist'), path.join(pkgDir, 'dist/web'), { recursive: true });
 
 // The desktop shell runs unpackaged: `electron desktop/`. Its main.js reads ../package.json.
+// relay.webUrl carries over from apps/desktop: it's the server `relay-chat desktop` opens by default.
 mkdirSync(path.join(pkgDir, 'desktop'), { recursive: true });
 cpSync(path.join(root, 'apps/desktop/dist'), path.join(pkgDir, 'desktop/dist'), { recursive: true });
 const desktop = JSON.parse(readFileSync(path.join(root, 'apps/desktop/package.json'), 'utf8'));
 writeFileSync(
   path.join(pkgDir, 'desktop/package.json'),
   JSON.stringify(
-    { name: 'relay-chat-desktop', productName: desktop.productName, version: pkg.version, main: desktop.main, relay: { webUrl: '', updateUrl: '' } },
+    { name: 'relay-chat-desktop', productName: desktop.productName, version: pkg.version, main: desktop.main, relay: { webUrl: desktop.relay?.webUrl ?? '', updateUrl: '' } },
     null,
     2,
   ) + '\n',

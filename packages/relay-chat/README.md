@@ -34,8 +34,9 @@ Accounts use a password. The first person to open a fresh server creates their a
 ## Desktop app
 
 ```sh
-relay-chat desktop                                  # starts a local server if none is running
-relay-chat desktop --url https://chat.example.com   # or opens an existing server
+relay-chat desktop                                  # opens the server built into the app
+relay-chat desktop --url https://chat.example.com   # or another server
+relay-chat desktop --url http://localhost:4000      # or a local one, started if none is running
 ```
 
 The desktop app is Electron, downloaded for your platform (macOS or Windows) when you install. To skip it on a server, install with `npm install -g relay-chat --omit=optional`.
@@ -51,7 +52,7 @@ On macOS, an app started from a terminal uses that terminal's microphone permiss
 | `--port <n>` | `PORT` | `4000` |
 | `--host <addr>` | `HOST` | `127.0.0.1` |
 | `--data <dir>` | `RELAY_DATA_DIR` | `~/.relay-chat` (database and uploads) |
-| `--url <url>` | `RELAY_WEB_URL` | `http://localhost:<port>` (desktop only) |
+| `--url <url>` | `RELAY_WEB_URL` | the built-in server, else `http://localhost:<port>` (desktop only) |
 
 Settings can also go in a `.env` file in the directory you run it from:
 

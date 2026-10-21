@@ -20,7 +20,7 @@ Options:
   --port <n>     HTTP port (default 4000, env PORT)
   --host <addr>  Address to listen on (default 127.0.0.1; 0.0.0.0 for your network, env HOST)
   --data <dir>   Where the database and uploads live (default ~/.relay-chat, env RELAY_DATA_DIR)
-  --url <url>    desktop: server to open (default http://localhost:<port>, env RELAY_WEB_URL)
+  --url <url>    desktop: server to open (default: the built-in server, else http://localhost:<port>; env RELAY_WEB_URL)
   -v, --version  Print the version
   -h, --help     Show this help
 
@@ -92,7 +92,9 @@ async function desktop() {
   }
   if (typeof electron !== 'string' || !existsSync(electron)) fail('Electron is installed but its app is missing. Reinstall relay-chat.');
 
-  const url = flags.url || env.RELAY_WEB_URL || `http://localhost:${port}`;
+  // The server baked in at build time (desktop/package.json relay.webUrl) is the default.
+  const desktopPkg = JSON.parse(readFileSync(path.join(pkgDir, 'desktop/package.json'), 'utf8'));
+  const url = flags.url || env.RELAY_WEB_URL || desktopPkg.relay?.webUrl || `http://localhost:${port}`;
   // Only a local URL gets a server started for it. A remote one goes straight to the app, which
   // reports a load failure and offers the certificate prompt for self-signed HTTPS; checking it
   // here with Node's fetch would reject that certificate before the prompt could appear.
