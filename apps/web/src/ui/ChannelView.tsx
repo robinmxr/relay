@@ -1,7 +1,8 @@
 import type { Channel, FileInfo, Message, User } from '@relay/shared';
 import { channelTitle } from '../format';
 import { Composer } from './Composer';
-import { BackIcon, GearIcon, HeadphonesIcon } from './icons';
+import { Avatar } from './Avatar';
+import { BackIcon, GearIcon, HashIcon, HeadphonesIcon, LockIcon } from './icons';
 import { MessageList, type MessageActions } from './MessageList';
 
 interface Props extends MessageActions {
@@ -23,7 +24,7 @@ interface Props extends MessageActions {
   onHuddle: () => void;
   onOpenSettings: () => void;
   onBack: () => void;
-  /** Opens a person's DM (or your own settings). */
+  /** Opens a person's profile. */
   onOpenUser?: (userId: string) => void;
 }
 
@@ -36,6 +37,8 @@ function typingLine(names: string[]): string {
 
 export function ChannelView(p: Props) {
   const title = channelTitle(p.channel, p.me);
+  // Prefer the live copy from the member list: it carries status changes since the channel loaded.
+  const peer = p.channel.isDm ? (p.users[p.channel.dmUser?.id ?? p.me.id] ?? p.channel.dmUser ?? p.me) : null;
   const archived = p.channel.archivedAt !== null;
   const inThisHuddle = p.myHuddleChannelId === p.channel.id;
   const huddleCount = p.channel.huddle.length;
@@ -49,10 +52,22 @@ export function ChannelView(p: Props) {
         </button>
         <div className="pane-title">
           <h1>
-            {title}
+            {peer && p.onOpenUser ? (
+              <button className="as-btn pane-title-link" title={`View ${title}'s profile`} onClick={() => p.onOpenUser?.(peer.id)}>
+                {title}
+              </button>
+            ) : (
+              title
+            )}
             {archived && <span className="pill">archived</span>}
           </h1>
-          {p.channel.topic && <p>{p.channel.topic}</p>}
+          {peer?.status ? (
+            <p>
+              {peer.status.emoji} {peer.status.text}
+            </p>
+          ) : (
+            p.channel.topic && <p>{p.channel.topic}</p>
+          )}
         </div>
         {p.channel.isMember && !p.channel.isDm && (
           <button className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={p.onOpenSettings}>
@@ -84,7 +99,7 @@ export function ChannelView(p: Props) {
         onOpenThread={p.onOpenThread}
         onLoadOlder={p.onLoadOlder}
         onOpenUser={p.onOpenUser}
-        emptyText={p.channel.isDm ? `This is the start of your conversation with ${title}.` : `This is the very beginning of ${title}.`}
+        intro={<ChannelIntro channel={p.channel} me={p.me} title={title} onOpenUser={p.onOpenUser} />}
       />
 
       <div className="typing" aria-live="polite">
@@ -118,5 +133,35 @@ export function ChannelView(p: Props) {
         </div>
       )}
     </section>
+  );
+}
+
+/** The top of a conversation: what this place is, before anyone said anything. */
+function ChannelIntro({ channel, me, title, onOpenUser }: { channel: Channel; me: User; title: string; onOpenUser?: (userId: string) => void }) {
+  const peer = channel.isDm ? (channel.dmUser ?? me) : null;
+  return (
+    <div className="channel-start">
+      {peer ? (
+        <Avatar user={peer} size={64} />
+      ) : (
+        <span className="channel-start-icon" aria-hidden="true">
+          {channel.isPrivate ? <LockIcon size={26} /> : <HashIcon size={26} />}
+        </span>
+      )}
+      <h2>{peer ? title : channel.name}</h2>
+      {!peer && channel.topic && <p className="channel-start-topic">{channel.topic}</p>}
+      <p>
+        {peer
+          ? peer.id === me.id
+            ? 'Your own space: notes, drafts, links to come back to.'
+            : `This is the start of your conversation with ${peer.name}.`
+          : `This is the very beginning of ${title}.`}
+      </p>
+      {peer && peer.id !== me.id && onOpenUser && (
+        <button className="btn small" onClick={() => onOpenUser(peer.id)}>
+          View profile
+        </button>
+      )}
+    </div>
   );
 }

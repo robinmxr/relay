@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Channel, Message, User } from '@relay/shared';
 import { dayKey, dayLabel } from '../format';
 import { MessageItem } from './MessageItem';
@@ -16,10 +16,11 @@ interface Props extends MessageActions {
   messages: Message[] | undefined;
   hasMore: boolean;
   activeThreadId: string | null;
-  emptyText: string;
+  /** Shown above the first message, once there are no earlier ones to load. */
+  intro: ReactNode;
   onOpenThread: (messageId: string) => void;
   onLoadOlder: () => Promise<void>;
-  /** Opens a person's DM (or your own settings). */
+  /** Opens a person's profile. */
   onOpenUser?: (userId: string) => void;
 }
 
@@ -68,7 +69,7 @@ export function MessageList(p: Props) {
               </button>
             </div>
           ) : (
-            <p className="channel-start">{p.emptyText}</p>
+            p.intro
           )}
           {p.messages.map((m, i) => {
             const prev = p.messages![i - 1];

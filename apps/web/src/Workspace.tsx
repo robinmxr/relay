@@ -12,6 +12,7 @@ import { ChannelSettings } from './ui/ChannelSettings';
 import { HuddleAudio, HuddleBar, HuddleScreen, HuddleStage } from './ui/Huddle';
 import { HuddleInvites, type HuddleInvite } from './ui/HuddleInvites';
 import { People } from './ui/People';
+import { Profile } from './ui/Profile';
 import { SearchView } from './ui/SearchView';
 import { Settings } from './ui/Settings';
 import { Sidebar } from './ui/Sidebar';
@@ -90,14 +91,20 @@ export function Workspace({
     setRoute(next);
   }, []);
 
+  /** Set while a profile is open on top of the people list, so Back returns to the list. */
+  const profileFromPeople = useRef(false);
+
   /**
    * Opens a page. It never stacks on another page — the workspace is one container, so
    * going to settings from people replaces it, exactly like choosing another screen in Slack.
+   * The one exception is a profile opened from the people list, which Back returns to.
    */
   const openPage = useCallback(
     (next: Route) => {
-      if (routeRef.current.name === 'chat') returnTo.current = routePath(routeRef.current);
-      navigate(next, routeRef.current.name === 'chat');
+      const from = routeRef.current.name;
+      if (from === 'chat') returnTo.current = routePath(routeRef.current);
+      profileFromPeople.current = from === 'people' && next.name === 'profile';
+      navigate(next, from === 'chat' || profileFromPeople.current);
     },
     [navigate],
   );
@@ -105,6 +112,12 @@ export function Workspace({
   /** Back to the workspace view. Always works, whatever the URL or history happens to be. */
   const closePage = useCallback(() => {
     if (routeRef.current.name === 'chat') return;
+    if (routeRef.current.name === 'profile' && profileFromPeople.current) {
+      profileFromPeople.current = false;
+      window.history.back();
+      setRoute({ name: 'people' });
+      return;
+    }
     const back = returnTo.current;
     if (window.history.state?.relay && window.history.length > 1) window.history.back();
     else navigate(parseRoute(back), false);
@@ -113,7 +126,11 @@ export function Workspace({
 
   // Browser Back / Forward: the URL is the truth again.
   useEffect(() => {
-    const onPop = () => setRoute(parseRoute(window.location.pathname));
+    const onPop = () => {
+      const next = parseRoute(window.location.pathname);
+      if (next.name !== 'profile') profileFromPeople.current = false;
+      setRoute(next);
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -452,16 +469,22 @@ export function Workspace({
     [workspaceId, loadChannels, open],
   );
 
-  /** Clicking a person anywhere: their DM with you — or your own settings, when it's you. */
-  const openUser = useCallback(
+  /** Clicking a person anywhere — avatar, name or @mention — opens their profile. */
+  const openUser = useCallback((userId: string) => openPage({ name: 'profile', userId }), [openPage]);
+
+  /** Leaves whatever page is open and lands in the DM with them. */
+  const messageUser = useCallback(
     (userId: string) => {
-      if (userId === stateRef.current.me.id) {
-        openPage({ name: 'settings', tab: 'profile' });
-        return;
+      if (profileFromPeople.current) {
+        // Two pages deep: going back one step would land on the list, so swap the URL instead.
+        profileFromPeople.current = false;
+        navigate(parseRoute(returnTo.current), false);
+      } else {
+        closePage();
       }
       void startDm(userId).catch(console.error);
     },
-    [startDm, openPage],
+    [closePage, navigate, startDm],
   );
 
   const createWorkspace = useCallback(
@@ -616,15 +639,20 @@ export function Workspace({
           <People
             workspace={currentWorkspace}
             members={Object.values(state.users)}
-            onMessage={(id) => {
-              if (id === stateRef.current.me.id) {
-                openUser(id);
-                return;
-              }
-              // Back to the channel now; the DM opens as soon as it's ready.
-              closePage();
-              openUser(id);
-            }}
+            meId={state.me.id}
+            onMessage={messageUser}
+            onOpenProfile={openUser}
+            onBack={closePage}
+          />
+        ) : route.name === 'profile' ? (
+          <Profile
+            key={route.userId}
+            user={state.users[route.userId] ?? null}
+            meId={state.me.id}
+            workspace={currentWorkspace}
+            backLabel={profileFromPeople.current ? 'People' : 'Back'}
+            onMessage={messageUser}
+            onEditOwn={() => openPage({ name: 'settings', tab: 'profile' })}
             onBack={closePage}
           />
         ) : route.name === 'channel-settings' && settingsChannel ? (

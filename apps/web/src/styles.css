@@ -19,6 +19,8 @@
   --badge: #c2410c;
   --online: #2fa36b;
   --radius: 8px;
+  /* One height for every top bar (sidebar, channel, thread) so their borders meet in a line. */
+  --head-h: 64px;
   color-scheme: light;
 }
 
@@ -360,9 +362,10 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px 10px 20px;
+  padding: 0 16px 0 20px;
   border-bottom: 1px solid var(--line);
-  min-height: 60px;
+  height: var(--head-h);
+  flex: none;
 }
 
 .pane-title {
@@ -407,7 +410,9 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 14px 18px;
+  height: var(--head-h);
+  flex: none;
+  padding: 0 18px;
   border-bottom: 1px solid var(--side-line);
   background: var(--side-deep);
 }
@@ -641,8 +646,37 @@ a {
 }
 
 .channel-start {
-  margin: 24px 20px 8px;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 28px 20px 12px;
   color: var(--muted);
+}
+
+.channel-start h2 {
+  margin: 8px 0 0;
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.channel-start p {
+  margin: 0 0 6px;
+  max-width: 60ch;
+}
+
+.channel-start .channel-start-topic {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.channel-start-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
 }
 
 .load-older {
@@ -861,7 +895,12 @@ a {
 }
 
 .thread .composer {
-  margin: 0 16px 16px;
+  margin: 0 16px 20px;
+}
+
+/* The narrow thread pane has no room for the key hints; keep its composer the main one's height. */
+.thread .composer-bar .hint {
+  display: none;
 }
 
 .join-bar {
@@ -1769,6 +1808,19 @@ button.hs-tile:hover {
   display: flex;
 }
 
+/* Pages with a section menu need the room; single-column pages read better narrow. */
+.page {
+  --page-w: 1080px;
+}
+
+.page:not(:has(.page-nav)) {
+  --page-w: 800px;
+}
+
+.page:not(:has(.page-nav)) .page-content.settings-body {
+  max-width: none;
+}
+
 .page {
   flex: 1 1 auto;
   min-width: 0;
@@ -1783,7 +1835,7 @@ button.hs-tile:hover {
   align-items: center;
   gap: 16px;
   /* Lines the header up with the centred body below it. */
-  padding: 14px max(24px, calc((100% - 1080px) / 2 + 24px));
+  padding: 14px max(24px, calc((100% - var(--page-w)) / 2 + 24px));
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   flex: none;
@@ -1836,7 +1888,7 @@ button.hs-tile:hover {
   min-height: 0;
   display: flex;
   gap: 40px;
-  width: min(1080px, 100%);
+  width: min(var(--page-w), 100%);
   margin: 0 auto;
   padding: 32px 24px 48px;
   overflow-y: auto;
@@ -2349,8 +2401,21 @@ select.input {
 .member-id {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+}
+
+.member-id.as-btn {
+  flex: 1;
+  border-radius: 8px;
+}
+
+.member-id.as-btn:hover .member-name {
+  text-decoration: underline;
+}
+
+.member-name {
+  font-weight: 600;
 }
 
 .row-actions {
@@ -2378,7 +2443,7 @@ select.input {
   overflow-y: auto;
 }
 
-/* Clickable people: avatars, names and mention chips open a DM; your own opens settings */
+/* Clickable people: avatars, names and mention chips open their profile */
 
 .as-btn {
   border: 0;
@@ -2424,6 +2489,15 @@ select.input {
 .msg-author.as-btn:hover,
 .mention.as-btn:hover {
   text-decoration: underline;
+}
+
+.pane-title-link:hover {
+  text-decoration: underline;
+}
+
+/* .as-btn resets font, which would undo the author's weight. */
+.msg-author.as-btn {
+  font-weight: 700;
 }
 
 .ws-status.as-btn:hover {
@@ -2537,4 +2611,121 @@ select.input {
     animation: none;
     transition: none;
   }
+}
+
+/* Profile */
+
+.profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.profile-hero .presence {
+  width: 20px;
+  height: 20px;
+  right: -5px;
+  bottom: -5px;
+  border: 4px solid var(--surface);
+}
+
+.profile-id {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-body .profile-id h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.profile-id p {
+  margin: 0;
+}
+
+.profile-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.presence-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+}
+
+.profile-presence.on .presence-dot {
+  border-color: var(--online);
+  background: var(--online);
+}
+
+.profile-status {
+  font-size: 15px;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.profile-facts {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+}
+
+.profile-facts dt {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.profile-facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-facts a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.profile-facts a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .profile-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}
+
+/* Thin, quiet scrollbars in the panes */
+
+.messages,
+.sidebar-scroll,
+.page-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.sidebar-scroll {
+  scrollbar-color: var(--side-line) transparent;
 }

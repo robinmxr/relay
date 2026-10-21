@@ -29,7 +29,7 @@ export function MessageItem({ message: m, me, users, compact, highlighted, canAc
   const mentionsMe = m.mentions.includes(me.id);
   const react = (emoji: string) => void onReact?.(m.id, emoji).catch(console.error);
   const openUser = () => onOpenUser?.(m.user.id);
-  const userTitle = mine ? 'Your profile' : `Message ${m.user.name}`;
+  const userTitle = mine ? 'Your profile' : `View ${m.user.name}'s profile`;
 
   const remove = () => {
     if (window.confirm('Delete this message? This cannot be undone.')) void onDelete?.(m.id).catch((err) => window.alert(err.message));

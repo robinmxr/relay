@@ -9,13 +9,17 @@ import { Page } from './Page';
 export function People({
   workspace,
   members,
+  meId,
   onMessage,
+  onOpenProfile,
   onBack,
 }: {
   workspace: Workspace | null;
   members: UserWithPresence[];
-  /** Opens a DM with the person; for yourself it opens your settings. */
+  meId: string;
+  /** Opens a DM with the person. */
   onMessage: (userId: string) => void;
+  onOpenProfile: (userId: string) => void;
   onBack: () => void;
 }) {
   const isOwner = workspace?.role === 'owner';
@@ -118,21 +122,24 @@ export function People({
         />
         {visible.map((u) => (
           <div key={u.id} className="session-row">
-            <div className="member-id">
-              <Avatar user={u} size={28} online={u.online} />
+            <button className="member-id as-btn" title={`View ${u.name}'s profile`} onClick={() => onOpenProfile(u.id)}>
+              <Avatar user={u} size={36} online={u.online} />
               <div>
-                <div>
+                <div className="member-name">
                   {u.name}
                   {u.status ? ` ${u.status.emoji}` : ''}
+                  {u.id === meId && <span className="pill">you</span>}
                   {u.role === 'owner' && <span className="pill">owner</span>}
                 </div>
                 <div className="session-meta">{u.email}</div>
               </div>
-            </div>
+            </button>
             <div className="row-actions">
-              <button className="btn small" onClick={() => onMessage(u.id)}>
-                Message
-              </button>
+              {u.id !== meId && (
+                <button className="btn small" onClick={() => onMessage(u.id)}>
+                  Message
+                </button>
+              )}
               {isOwner && u.role !== 'owner' &&
                 (confirmRemove === u.id ? (
                   <button className="btn small danger-btn" disabled={busy} onClick={() => void run(() => api(`/workspaces/${workspace!.id}/members/${u.id}`, { method: 'DELETE' }), 'Could not remove them', () => setConfirmRemove(null))}>
