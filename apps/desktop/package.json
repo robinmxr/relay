@@ -2,21 +2,22 @@
   "name": "@relay/desktop",
   "productName": "Relay",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Relay desktop shell",
   "author": "Relay",
   "main": "dist/main.js",
   "relay": {
     "webUrl": "https://192.168.21.155:4443",
-    "updateUrl": ""
+    "updateUrl": "https://github.com/robinmxr/relay/releases/latest/download/",
+    "pinnedCert": ""
   },
   "scripts": {
-    "build": "tsc -p .",
+    "build": "tsc -p . && node scripts/prepare-build.mjs",
     "start": "tsc -p . && electron .",
     "typecheck": "tsc -p . --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "pack": "tsc -p . && electron-builder --dir",
-    "dist": "tsc -p . && electron-builder"
+    "pack": "npm run build && electron-builder --dir --publish never",
+    "dist": "npm run build && electron-builder --publish never"
   },
   "devDependencies": {
     "@electron/fuses": "^1.8.0",

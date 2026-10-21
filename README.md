@@ -60,7 +60,7 @@ On start the server prints the address to share with people on your network, and
 ### Checks
 
 ```sh
-npm test             # server integration tests (20) and desktop unit tests (6)
+npm test             # server integration tests (20) and desktop unit tests (15)
 npm run typecheck    # all workspaces
 ```
 
@@ -98,7 +98,7 @@ Hardening choices:
 - Every IPC handler checks that the sender's origin is the app's origin and validates its arguments.
 - Navigation to other origins is blocked. Links open in the system browser, and only for `https`, `http` and `mailto`.
 - Permissions (notifications, mic, screen capture, clipboard write, fullscreen) are granted only to the app's origin. Screen share uses the macOS system picker on macOS 15 and later.
-- **Server certificates are pinned, not ignored.** A certificate that fails normal validation — the self-signed one on a LAN — is accepted only when its SHA-256 fingerprint exactly matches one the user approved for that origin. The pin lives in `userData/settings.json`, and any other certificate is refused, including a pinned server whose certificate later changes. There is deliberately no "ignore certificate errors" switch. `Help → Server certificate…` shows and clears the pin.
+- **Server certificates are pinned, not ignored.** A certificate that fails normal validation — the self-signed one on a LAN — is accepted only when its SHA-256 fingerprint exactly matches one of the pins for that origin: the one the user approved (in `userData/settings.json`), the one baked into the build for the server it points at, or both. Any other certificate is refused, including a pinned server whose certificate later changes. There is deliberately no "ignore certificate errors" switch. `Help → Server certificate…` shows and clears the pins.
 - **Fuses** are flipped at package time: RunAsNode, `NODE_OPTIONS` and inspector flags are off; cookie encryption, asar integrity validation and asar-only loading are on.
 
 ## Packaging the desktop app
@@ -108,11 +108,51 @@ npm run desktop:pack   # unpacked app in apps/desktop/release/ to try locally
 npm run desktop:dist   # dmg + zip (mac), nsis (win), AppImage (linux)
 ```
 
-- Set the server URL the app loads, and the update feed, in `apps/desktop/package.json` under `"relay"`, or with the `RELAY_WEB_URL` and `RELAY_UPDATE_URL` env vars. **Env wins**, so `RELAY_WEB_URL` in `.env` overrides `relay.webUrl` — that is the value `npm run desktop` uses. Both default to a fixed LAN address until a deployed server exists, so the app needs no first-run prompt.
-- **Signing:** set `CSC_LINK` and `CSC_KEY_PASSWORD`. Without them, set `CSC_IDENTITY_AUTO_DISCOVERY=false` and the build is ad-hoc signed.
+A release is three values, all of them environment variables, so the same source builds an app
+for any server:
+
+| Variable | What it is |
+| --- | --- |
+| `RELAY_DESKTOP_WEB_URL` | the server the app loads the client from |
+| `RELAY_DESKTOP_CERT_FINGERPRINT` | that server's SHA-256 certificate fingerprint, if it is self-signed |
+| `RELAY_DESKTOP_UPDATE_URL` | the update feed |
+
+`apps/desktop/scripts/prepare-build.mjs` writes them to `apps/desktop/dist/relay.json`, which the
+app reads at startup. It falls back to the committed defaults in `apps/desktop/package.json`
+under `"relay"`, and `RELAY_WEB_URL` / `RELAY_UPDATE_URL` still override both at runtime — that is
+the value `npm run desktop` uses in development.
+
+**The baked certificate is what makes the install plug and play.** With the fingerprint in the
+build, a fresh install connects to a self-signed server without anyone reading and approving a
+fingerprint: the pin is checked exactly as a user-approved one is, and any other certificate is
+still refused. A pin the user approved earlier never shadows the build's, so an app updated for a
+re-keyed server keeps working. If the server is later re-keyed without a new build, the app says
+the certificate changed and points at `Help → Server certificate…`, which drops the pins so the
+new certificate can be approved by hand. When the server gets a certificate the system already
+trusts, the pin never comes into it.
+
+- **Signing:** set `CSC_LINK` and `CSC_KEY_PASSWORD`. Without them, set `CSC_IDENTITY_AUTO_DISCOVERY=false` and the build is ad-hoc signed — it runs, but macOS asks the user to allow it.
 - **Notarization:** set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`.
-- **Auto-update:** host the files from `npm run dist` (including `latest-mac.yml`) at `updateUrl`. Packaged builds check on start and every 4 hours. macOS only applies updates to signed builds.
+- **Auto-update:** `electron-builder.yml` names a generic feed, GitHub releases, which is what makes it write `latest-mac.yml` next to the artifacts. Point `RELAY_DESKTOP_UPDATE_URL` at it. Packaged builds check on start and every 4 hours. macOS only applies updates to signed builds.
 - In dev, the app keeps its data in `Relay Dev`, separate from an installed copy.
+
+### Releasing
+
+`.github/workflows/release.yml` builds the three platforms and, on a tag, uploads the installers
+and the update metadata to a GitHub release. Push a tag matching the version in
+`apps/desktop/package.json`:
+
+```sh
+git tag v0.1.2 && git push origin v0.1.2
+```
+
+Set these as repository variables: `RELAY_DESKTOP_WEB_URL`, and optionally
+`RELAY_DESKTOP_CERT_FINGERPRINT` and `RELAY_DESKTOP_UPDATE_URL`. Signing is optional: add
+`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `MAC_APPLE_ID`, `MAC_APPLE_APP_SPECIFIC_PASSWORD` and
+`MAC_APPLE_TEAM_ID` as secrets for signed and notarized macOS builds, and `WIN_CSC_LINK` and
+`WIN_CSC_KEY_PASSWORD` for Windows. Without them the builds are ad-hoc signed on macOS and
+unsigned elsewhere, which is fine for testing but means users have to allow the app themselves.
+
 
 ## npm package
 
@@ -130,4 +170,5 @@ npm pack           # inspect the tarball; npm publish also runs the build
 - **Huddles live on one server process.** Huddle membership is kept in memory, so with several processes behind Redis, everyone in one huddle must reach the same process (sticky sessions). The mesh topology tops out around 5 or 6 people; beyond that it needs an SFU.
 - **Presence after a crash.** If a server process crashes, its users read as offline after 60 seconds, but no "went offline" event is sent.
 - **Files are on local disk.** There's no S3 backend yet, and files uploaded but never sent aren't cleaned up.
+- **The installers are not signed yet.** There is no Apple Developer ID or Windows certificate yet, so macOS asks users to allow the app the first time they open it, and auto-update does not apply to unsigned macOS builds. The release pipeline takes the credentials when they exist.
 - **The UI has no automated tests.** The server is covered by integration tests, and the desktop shell's certificate-fingerprint logic by unit tests, but the React client is not covered.

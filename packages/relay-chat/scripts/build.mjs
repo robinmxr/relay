@@ -35,16 +35,25 @@ cpSync(path.join(root, 'apps/web/dist'), path.join(pkgDir, 'dist/web'), { recurs
 
 // The desktop shell runs unpackaged: `electron desktop/`. Its main.js reads ../package.json.
 // relay.webUrl carries over from apps/desktop: it's the server `relay-chat desktop` opens by default.
+// When apps/desktop was built with scripts/prepare-build.mjs, dist/relay.json holds the values
+// that build was made with, and those are the ones to carry over.
 mkdirSync(path.join(pkgDir, 'desktop'), { recursive: true });
 cpSync(path.join(root, 'apps/desktop/dist'), path.join(pkgDir, 'desktop/dist'), { recursive: true });
 const desktop = JSON.parse(readFileSync(path.join(root, 'apps/desktop/package.json'), 'utf8'));
+let built = null;
+try {
+  built = JSON.parse(readFileSync(path.join(root, 'apps/desktop/dist/relay.json'), 'utf8'));
+} catch {
+  // Not built with a generated config: the committed defaults are used.
+}
+const relay = {
+  webUrl: built?.webUrl ?? desktop.relay?.webUrl ?? '',
+  updateUrl: built?.updateUrl ?? desktop.relay?.updateUrl ?? '',
+  pinnedCert: built?.pinnedCert ?? desktop.relay?.pinnedCert ?? '',
+};
 writeFileSync(
   path.join(pkgDir, 'desktop/package.json'),
-  JSON.stringify(
-    { name: 'relay-chat-desktop', productName: desktop.productName, version: pkg.version, main: desktop.main, relay: { webUrl: desktop.relay?.webUrl ?? '', updateUrl: '' } },
-    null,
-    2,
-  ) + '\n',
+  JSON.stringify({ name: 'relay-chat-desktop', productName: desktop.productName, version: pkg.version, main: desktop.main, relay }, null, 2) + '\n',
 );
 
 console.log(`built ${pkg.name}@${pkg.version}`);

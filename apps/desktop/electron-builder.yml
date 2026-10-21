@@ -1,11 +1,18 @@
 # Packaging for the desktop shell. `npm run pack` builds an unpacked app to try locally;
 # `npm run dist` builds installers. Signing and notarization run when their credentials are set
 # (CSC_LINK / CSC_KEY_PASSWORD, and APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID).
+#
+# The publish provider is what makes electron-builder write the update metadata (latest-mac.yml
+# and friends) next to the artifacts. Publishing itself is left to CI, which uploads them to a
+# GitHub release; `npm run dist` never publishes.
 appId: app.relay.desktop
 productName: Relay
 directories:
   output: release
   buildResources: build
+publish:
+  provider: generic
+  url: https://github.com/robinmxr/relay/releases/latest/download/
 files:
   - dist/**
   - package.json

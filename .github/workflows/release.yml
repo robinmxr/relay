@@ -1,0 +1,121 @@
+# Builds the installers and, on a tag, publishes them to a GitHub release.
+#
+# The build needs to know which server the app talks to. That is a repository variable, so it is
+# set once and every build picks it up:
+#
+#   RELAY_DESKTOP_WEB_URL           the server the app loads the client from (required)
+#   RELAY_DESKTOP_CERT_FINGERPRINT  that server's SHA-256 certificate fingerprint (optional)
+#   RELAY_DESKTOP_UPDATE_URL        the update feed (optional; defaults to the releases page)
+#
+# Signing is optional. Without these secrets the build is ad-hoc signed on macOS and unsigned
+# elsewhere, which is fine for testing but means users have to allow the app themselves:
+#
+#   MAC_CSC_LINK            base64 of the Developer ID .p12, or a URL to it
+#   MAC_CSC_KEY_PASSWORD    its password
+#   MAC_APPLE_ID            Apple account email, for notarization
+#   MAC_APPLE_APP_SPECIFIC_PASSWORD  the app-specific password
+#   MAC_APPLE_TEAM_ID       the team id
+#   WIN_CSC_LINK            base64 of the Windows certificate .pfx
+#   WIN_CSC_KEY_PASSWORD    its password
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            arch: arm64
+          - os: windows-latest
+            platform: win
+            arch: x64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have=$(node -p "require('./apps/desktop/package.json').version")
+          if [ "$want" != "$have" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match the desktop version $have" >&2
+            exit 1
+          fi
+
+      - name: Check the server is configured
+        shell: bash
+        env:
+          RELAY_DESKTOP_WEB_URL: ${{ vars.RELAY_DESKTOP_WEB_URL }}
+        run: |
+          if [ -z "$RELAY_DESKTOP_WEB_URL" ]; then
+            echo "RELAY_DESKTOP_WEB_URL is not set. Add it as a repository variable." >&2
+            exit 1
+          fi
+
+      - name: Build the installers
+        env:
+          RELAY_DESKTOP_WEB_URL: ${{ vars.RELAY_DESKTOP_WEB_URL }}
+          RELAY_DESKTOP_CERT_FINGERPRINT: ${{ vars.RELAY_DESKTOP_CERT_FINGERPRINT }}
+          RELAY_DESKTOP_UPDATE_URL: ${{ vars.RELAY_DESKTOP_UPDATE_URL }}
+          # No certificate means an ad-hoc signed build, which still runs.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (matrix.platform == 'mac' && secrets.MAC_CSC_LINK != '') || (matrix.platform == 'win' && secrets.WIN_CSC_LINK != '') }}
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WIN_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.MAC_APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MAC_APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.MAC_APPLE_TEAM_ID }}
+        run: npm run desktop:dist
+
+      - name: Collect the artifacts
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cd apps/desktop/release
+          # The installer, the update metadata and the block maps that make updates incremental.
+          cp -v *.dmg *.zip *.exe *.AppImage *.blockmap latest*.yml latest*.json "$GITHUB_WORKSPACE/out/" 2>/dev/null || true
+          ls -la "$GITHUB_WORKSPACE/out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relay-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          fail_on_unmatched_files: true
+          generate_release_notes: true

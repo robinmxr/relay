@@ -20,9 +20,9 @@ import {
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { fingerprintOf, format, matchesPin } from './certs';
-import { forgetFingerprint, trustedFingerprint, trustFingerprint } from './settings';
-import { shouldTrust } from './trust';
-
+import type { BakedPin } from './pins';
+import { forgetFingerprint, trustFingerprint } from './settings';
+import { pinsForOrigin, shouldTrust } from './trust';
 // In development, read the repo's .env like the server does. Variables already set win.
 // Skipped under the npm launcher, which passes RELAY_WEB_URL itself.
 if (!app.isPackaged && !process.env.RELAY_CLI) {
@@ -33,11 +33,26 @@ if (!app.isPackaged && !process.env.RELAY_CLI) {
   }
 }
 
-// Build-time settings live in package.json "relay"; env vars override them.
-const shellConfig = (require('../package.json') as { relay?: { webUrl?: string; updateUrl?: string } }).relay ?? {};
+// Build-time settings. The generated dist/relay.json (written by scripts/prepare-build.mjs)
+// wins over the committed defaults in package.json, so a release build can point at a different
+// server, or carry that server's certificate, without a code change. Env vars override both.
+function loadShellConfig(): { webUrl?: string; updateUrl?: string; pinnedCert?: string } {
+  try {
+    const generated = require('./relay.json') as { webUrl?: string; updateUrl?: string; pinnedCert?: string };
+    if (generated && typeof generated === 'object') return generated;
+  } catch {
+    // No generated config: the committed defaults below are used.
+  }
+  return (require('../package.json') as { relay?: { webUrl?: string; updateUrl?: string; pinnedCert?: string } }).relay ?? {};
+}
+
+const shellConfig = loadShellConfig();
 const WEB_URL = process.env.RELAY_WEB_URL || shellConfig.webUrl || 'http://localhost:5173';
 const UPDATE_URL = process.env.RELAY_UPDATE_URL || shellConfig.updateUrl || '';
 const APP_ORIGIN = new URL(WEB_URL).origin;
+// The certificate this build was made for. Baked in, it is what lets a fresh install connect to a
+// self-signed server without asking the user to read and approve a fingerprint.
+const BAKED_PIN: BakedPin | null = shellConfig.pinnedCert ? { origin: APP_ORIGIN, fingerprint: shellConfig.pinnedCert } : null;
 const PROTOCOL = 'relay';
 const EXTERNAL_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
 const ALLOWED_PERMISSIONS = new Set(['notifications', 'media', 'display-capture', 'clipboard-sanitized-write', 'fullscreen']);
@@ -144,7 +159,7 @@ function configureSession(): void {
   app.on('certificate-error', (event, _wc, url, error, certificate, callback) => {
     const origin = originOf(url);
     const fingerprint = fingerprintOf(certificate);
-    if (origin && shouldTrust(origin, fingerprint)) {
+    if (origin && shouldTrust(origin, fingerprint, BAKED_PIN)) {
       event.preventDefault();
       callback(true);
       return;
@@ -212,11 +227,11 @@ function buildMenu(): void {
 
 /** Shows what is pinned for the current server, and offers to forget it. */
 async function showCertificate(): Promise<void> {
-  const pinned = trustedFingerprint(APP_ORIGIN);
-  const detail = pinned
-    ? `${APP_ORIGIN}\n\nPinned certificate fingerprint:\n${format(pinned)}`
+  const pins = pinsForOrigin(APP_ORIGIN, BAKED_PIN);
+  const detail = pins.length
+    ? `${APP_ORIGIN}\n\nTrusted certificate fingerprint:\n${pins.map(format).join('\n')}`
     : `${APP_ORIGIN}\n\nNo certificate is pinned. The server's certificate is checked normally.`;
-  if (!pinned) {
+  if (!pins.length) {
     await dialog.showMessageBox({ type: 'info', title: 'Server certificate', message: 'Server certificate', detail });
     return;
   }
@@ -224,18 +239,20 @@ async function showCertificate(): Promise<void> {
     type: 'question',
     title: 'Server certificate',
     message: 'Server certificate',
-    detail: `${detail}\n\nForget it? Relay will refuse this server until you approve its certificate again.`,
+    detail: `${detail}\n\nForget it? Relay will ask you to approve the server's certificate the next time it connects.`,
     buttons: ['Keep', 'Forget'],
     defaultId: 0,
     cancelId: 0,
   });
   if (response === 1) {
+    // Forgets the pin the user approved and the one this build was made with, so the next
+    // connection asks to be approved rather than failing.
     forgetFingerprint(APP_ORIGIN);
     await dialog.showMessageBox({
       type: 'info',
       title: 'Server certificate',
       message: 'Server certificate',
-      detail: 'Forgotten. Relay will refuse this server on the next reload until you approve its certificate again.',
+      detail: 'Forgotten. Relay will ask you to approve this server\'s certificate the next time it connects.',
     });
   }
 }
@@ -268,8 +285,8 @@ async function offerPin(win: BrowserWindow, url: string, errorCode: number): Pro
 
 async function explainOrOfferPin(win: BrowserWindow, origin: string): Promise<void> {
   const fingerprint = await fetchFingerprint(origin);
-  const pinned = trustedFingerprint(origin);
-  if (!fingerprint || (pinned && matchesPin(fingerprint, pinned))) {
+  const pins = pinsForOrigin(origin, BAKED_PIN);
+  if (!fingerprint || (fingerprint && pins.some((pin) => matchesPin(fingerprint, pin)))) {
     // Down, wrong address, or a failure that has nothing to do with the certificate.
     // Say so rather than leaving a blank window.
     const { response } = await dialog.showMessageBox(win, {
@@ -284,16 +301,17 @@ async function explainOrOfferPin(win: BrowserWindow, origin: string): Promise<vo
     if (response === 1) win.loadURL(WEB_URL);
     return;
   }
-  if (pinned) {
+  if (pins.length) {
     // A pinned certificate that stopped matching is a real error: never offer to accept it here.
     await dialog.showMessageBox(win, {
       type: 'error',
       title: 'Server certificate changed',
       message: 'The server is presenting a different certificate than the one you trusted',
       detail:
-        `${origin}\n\nTrusted:\n${format(pinned)}\n\nNow presented:\n${format(fingerprint)}\n\n` +
+        `${origin}\n\nTrusted:\n${pins.map(format).join('\n')}\n\nNow presented:\n${format(fingerprint)}\n\n` +
         'This happens when the server is re-keyed, or when another machine is impersonating it. ' +
-        'If the server was re-keyed, use Help → Server certificate… to forget the old one.',
+        'If the server was re-keyed, use Help → Server certificate… to forget the old one; ' +
+        'Relay will then ask you to approve the new certificate.',
       buttons: ['Close'],
     });
     return;
