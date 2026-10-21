@@ -93,10 +93,12 @@ async function desktop() {
   if (typeof electron !== 'string' || !existsSync(electron)) fail('Electron is installed but its app is missing. Reinstall relay-chat.');
 
   const url = flags.url || env.RELAY_WEB_URL || `http://localhost:${port}`;
+  // Only a local URL gets a server started for it. A remote one goes straight to the app, which
+  // reports a load failure and offers the certificate prompt for self-signed HTTPS; checking it
+  // here with Node's fetch would reject that certificate before the prompt could appear.
   let startedServer = false;
-  if (!(await reachable(url))) {
-    const { hostname } = new URL(url);
-    if (!['localhost', '127.0.0.1', '::1'].includes(hostname)) fail(`can't reach ${url}. Is the server running?`);
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname);
+  if (local && !(await reachable(url))) {
     await serve();
     startedServer = true;
   }
