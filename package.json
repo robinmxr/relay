@@ -13,7 +13,7 @@
     "build": "npm run build -w @relay/web && npm run build -w @relay/desktop",
     "start": "npm run start -w @relay/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test -w @relay/server",
+    "test": "npm test -w @relay/server && npm test -w @relay/desktop",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "desktop:pack": "npm run pack -w @relay/desktop",

@@ -35,6 +35,21 @@ Sign in with an email and password; accounts come with a one-time recovery code 
 
 **Single port (production style):** `npm run build && npm start` serves the built client and the API together on http://localhost:4000.
 
+### On your local network
+
+Until there's a deployed server, run it on this machine and point everyone at its LAN address:
+
+```sh
+# .env
+HOST=0.0.0.0
+RELAY_TLS_CERT=.data/tls/cert.pem
+RELAY_TLS_KEY=.data/tls/key.pem
+RELAY_HTTPS_PORT=4443
+RELAY_WEB_URL=https://192.168.21.155:4443   # the fixed LAN address, and where the desktop app loads from
+```
+
+On start the server prints the address to share with people on your network, and the certificate's SHA-256 fingerprint. The HTTPS listener is what makes huddles work off `localhost`; the fingerprint is what the desktop app compares against when it asks to trust the server's self-signed certificate. `README` for [`relay-chat`](packages/relay-chat/README.md) covers the trust prompt from the user's side.
+
 ### Database, Redis, files
 
 - With no `DATABASE_URL`, the server uses PGlite, an embedded Postgres in `apps/server/.data/pglite`. Migrations in `apps/server/src/migrations/` run on start, each once.
@@ -45,7 +60,7 @@ Sign in with an email and password; accounts come with a one-time recovery code 
 ### Checks
 
 ```sh
-npm test             # server integration tests (20)
+npm test             # server integration tests (20) and desktop unit tests (6)
 npm run typecheck    # all workspaces
 ```
 
@@ -83,6 +98,7 @@ Hardening choices:
 - Every IPC handler checks that the sender's origin is the app's origin and validates its arguments.
 - Navigation to other origins is blocked. Links open in the system browser, and only for `https`, `http` and `mailto`.
 - Permissions (notifications, mic, screen capture, clipboard write, fullscreen) are granted only to the app's origin. Screen share uses the macOS system picker on macOS 15 and later.
+- **Server certificates are pinned, not ignored.** A certificate that fails normal validation — the self-signed one on a LAN — is accepted only when its SHA-256 fingerprint exactly matches one the user approved for that origin. The pin lives in `userData/settings.json`, and any other certificate is refused, including a pinned server whose certificate later changes. There is deliberately no "ignore certificate errors" switch. `Help → Server certificate…` shows and clears the pin.
 - **Fuses** are flipped at package time: RunAsNode, `NODE_OPTIONS` and inspector flags are off; cookie encryption, asar integrity validation and asar-only loading are on.
 
 ## Packaging the desktop app
@@ -92,7 +108,7 @@ npm run desktop:pack   # unpacked app in apps/desktop/release/ to try locally
 npm run desktop:dist   # dmg + zip (mac), nsis (win), AppImage (linux)
 ```
 
-- Set the server URL the app loads, and the update feed, in `apps/desktop/package.json` under `"relay"`, or with the `RELAY_WEB_URL` and `RELAY_UPDATE_URL` env vars.
+- Set the server URL the app loads, and the update feed, in `apps/desktop/package.json` under `"relay"`, or with the `RELAY_WEB_URL` and `RELAY_UPDATE_URL` env vars. **Env wins**, so `RELAY_WEB_URL` in `.env` overrides `relay.webUrl` — that is the value `npm run desktop` uses. Both default to a fixed LAN address until a deployed server exists, so the app needs no first-run prompt.
 - **Signing:** set `CSC_LINK` and `CSC_KEY_PASSWORD`. Without them, set `CSC_IDENTITY_AUTO_DISCOVERY=false` and the build is ad-hoc signed.
 - **Notarization:** set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`.
 - **Auto-update:** host the files from `npm run dist` (including `latest-mac.yml`) at `updateUrl`. Packaged builds check on start and every 4 hours. macOS only applies updates to signed builds.
@@ -114,4 +130,4 @@ npm pack           # inspect the tarball; npm publish also runs the build
 - **Huddles live on one server process.** Huddle membership is kept in memory, so with several processes behind Redis, everyone in one huddle must reach the same process (sticky sessions). The mesh topology tops out around 5 or 6 people; beyond that it needs an SFU.
 - **Presence after a crash.** If a server process crashes, its users read as offline after 60 seconds, but no "went offline" event is sent.
 - **Files are on local disk.** There's no S3 backend yet, and files uploaded but never sent aren't cleaned up.
-- **The UI has no automated tests.** Only the server is covered.
+- **The UI has no automated tests.** The server is covered by integration tests, and the desktop shell's certificate-fingerprint logic by unit tests, but the React client is not covered.

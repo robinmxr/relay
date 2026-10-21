@@ -3,11 +3,14 @@
 // relay:// links) through a small, validated IPC surface.
 
 import path from 'node:path';
+import { connect as tlsConnect } from 'node:tls';
 import {
   app,
   BrowserWindow,
   desktopCapturer,
+  dialog,
   ipcMain,
+  Menu,
   Notification,
   session,
   shell,
@@ -16,6 +19,9 @@ import {
   type WebPreferences,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import { fingerprintOf, format } from './certs';
+import { forgetFingerprint, trustedFingerprint, trustFingerprint } from './settings';
+import { shouldTrust } from './trust';
 
 // In development, read the repo's .env like the server does. Variables already set win.
 // Skipped under the npm launcher, which passes RELAY_WEB_URL itself.
@@ -96,6 +102,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc();
     createMainWindow();
     setupUpdates();
+    buildMenu();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
       else focusMain();
@@ -122,11 +129,30 @@ function createMainWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-  void mainWindow.loadURL(WEB_URL);
+  // A rejected self-signed certificate shows up here first; offer to pin it, then reload.
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, _desc, validatedURL) => {
+    if (mainWindow) void offerPin(mainWindow, validatedURL || WEB_URL, errorCode);
+  });
+  loadApp();
 }
 
 function configureSession(): void {
   const ses = session.defaultSession;
+
+  // A self-signed certificate (the LAN phase) fails validation. Accept it only when its
+  // SHA-256 fingerprint was pinned for that exact origin beforehand; fail closed otherwise.
+  app.on('certificate-error', (event, _wc, url, error, certificate, callback) => {
+    const origin = originOf(url);
+    const fingerprint = fingerprintOf(certificate);
+    if (origin && shouldTrust(origin, fingerprint)) {
+      event.preventDefault();
+      callback(true);
+      return;
+    }
+    console.error(`Refused certificate for ${origin ?? url} (${error}); fingerprint ${fingerprint ? format(fingerprint) : 'unreadable'}`);
+    callback(false);
+  });
+
   ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
     const allowed = originOf(details.requestingUrl) === APP_ORIGIN && ALLOWED_PERMISSIONS.has(permission);
     // macOS only shows its microphone prompt when asked; without it capture yields silence.
@@ -158,7 +184,119 @@ function configureSession(): void {
   );
 }
 
-/** Auto-update from a generic feed (latest-mac.yml etc. from `npm run dist`). Packaged builds only. */
+/**
+ * App menu. On macOS this is the only menu, so it also carries the standard edit/window roles;
+ * the certificate item is the escape hatch for a server that has been re-keyed.
+ */
+function buildMenu(): void {
+  const isMac = process.platform === 'darwin';
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? ([{ role: 'appMenu' }] as Electron.MenuItemConstructorOptions[])
+      : ([{ role: 'fileMenu' }] as Electron.MenuItemConstructorOptions[])),
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Server certificate…',
+          click: () => void showCertificate(),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** Shows what is pinned for the current server, and offers to forget it. */
+async function showCertificate(): Promise<void> {
+  const pinned = trustedFingerprint(APP_ORIGIN);
+  const detail = pinned
+    ? `${APP_ORIGIN}\n\nPinned certificate fingerprint:\n${format(pinned)}`
+    : `${APP_ORIGIN}\n\nNo certificate is pinned. The server's certificate is checked normally.`;
+  if (!pinned) {
+    await dialog.showMessageBox({ type: 'info', title: 'Server certificate', message: 'Server certificate', detail });
+    return;
+  }
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    title: 'Server certificate',
+    message: 'Server certificate',
+    detail: `${detail}\n\nForget it? Relay will refuse this server until you approve its certificate again.`,
+    buttons: ['Keep', 'Forget'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) {
+    forgetFingerprint(APP_ORIGIN);
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'Server certificate',
+      message: 'Server certificate',
+      detail: 'Forgotten. Relay will refuse this server on the next reload until you approve its certificate again.',
+    });
+  }
+}
+
+/**
+ * Loads the client, which may fail on a self-signed certificate. When the certificate is
+ * unknown, show it and let the user pin it — then reload. Nothing is trusted implicitly.
+ */
+function loadApp(): void {
+  const win = mainWindow;
+  if (!win) return;
+  win.loadURL(WEB_URL).catch(() => {
+    // A rejected certificate surfaces as a load failure; the dialog is offered via did-fail-load.
+  });
+}
+
+async function offerPin(win: BrowserWindow, url: string, errorCode: number): Promise<void> {
+  if (errorCode >= 0) return; // Not a network/TLS failure.
+  const origin = originOf(url);
+  if (!origin || origin !== APP_ORIGIN) return;
+  if (trustedFingerprint(origin)) return; // Already decided: a pinned cert that stopped matching is a real error.
+  const fingerprint = await fetchFingerprint(origin);
+  if (!fingerprint) return;
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: 'Untrusted server certificate',
+    message: 'This server uses a certificate that is not trusted',
+    detail:
+      `${origin}\n\nCertificate fingerprint (SHA-256):\n${format(fingerprint)}\n\n` +
+      'Only continue if this matches the fingerprint printed by the server. Pinning the wrong one would let another machine impersonate it.',
+    buttons: ['Cancel', 'Trust and reload'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) {
+    trustFingerprint(origin, fingerprint);
+    win.loadURL(WEB_URL);
+  }
+}
+
+/** The peer certificate's fingerprint for an origin, via a throwaway TLS connection. */
+function fetchFingerprint(origin: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const url = new URL(origin);
+    const socket = tlsConnect(
+      { host: url.hostname, port: Number(url.port || 443), rejectUnauthorized: false, servername: url.hostname },
+      () => {
+        const cert = socket.getPeerCertificate();
+        socket.destroy();
+        resolve(cert && cert.raw ? fingerprintOf(cert.raw) : null);
+      },
+    );
+    socket.on('error', () => resolve(null));
+    socket.setTimeout(4000, () => {
+      socket.destroy();
+      resolve(null);
+    });
+  });
+}
+
+
 function setupUpdates(): void {
   if (!app.isPackaged || !UPDATE_URL) return;
   autoUpdater.setFeedURL({ provider: 'generic', url: UPDATE_URL });
