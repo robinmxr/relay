@@ -185,15 +185,15 @@ function ProfileTab({ me, onMeChange }: { me: User; onMeChange: (me: User) => vo
       <section>
         <h3>Avatar</h3>
         <div className="settings-avatar">
-          <Avatar user={me} size={64} />
+          <Avatar user={me} size={72} />
           <input ref={fileInput} type="file" accept="image/*" className="sr-only" onChange={(e) => void pickAvatar(e.target.files?.[0])} />
           <div className="settings-avatar-actions">
             <div className="settings-row-actions">
-              <button className="btn small" disabled={avatarBusy} onClick={() => fileInput.current?.click()}>
+              <button className="btn" disabled={avatarBusy} onClick={() => fileInput.current?.click()}>
                 {avatarBusy ? 'Uploading…' : me.avatarUrl ? 'Replace' : 'Upload image'}
               </button>
               {me.avatarUrl && (
-                <button className="btn small" disabled={avatarBusy} onClick={() => void removeAvatar()}>
+                <button className="btn" disabled={avatarBusy} onClick={() => void removeAvatar()}>
                   Remove
                 </button>
               )}
@@ -213,9 +213,10 @@ function ProfileTab({ me, onMeChange }: { me: User; onMeChange: (me: User) => vo
 
       <section>
         <h3>Display name</h3>
+        <p className="hint section-hint">How you appear in messages and the member list.</p>
         <form className="settings-row" onSubmit={(e) => void saveName(e)}>
-          <input className="input" required maxLength={80} value={name} onChange={(e) => { setName(e.target.value); setNameSaved(false); }} />
-          <button className="btn small primary" type="submit" disabled={busy || !name.trim() || name === me.name}>
+          <input className="input" aria-label="Display name" required maxLength={80} value={name} onChange={(e) => { setName(e.target.value); setNameSaved(false); }} />
+          <button className="btn primary" type="submit" disabled={busy || !name.trim() || name === me.name}>
             Save
           </button>
           <Flash key={String(nameSaved)} visible={nameSaved}>
@@ -232,36 +233,47 @@ function ProfileTab({ me, onMeChange }: { me: User; onMeChange: (me: User) => vo
 
       <section>
         <h3>Status</h3>
-        <p className="hint">Shown next to your name. Try 🎧 in a huddle, 🌴 on vacation.</p>
+        <p className="hint section-hint">
+          Shown next to your name. Try 🎧 in a huddle, 🌴 on vacation. {me.status ? `Current: ${me.status.emoji} ${me.status.text || 'set'}` : 'No status set.'}
+        </p>
         <div className="settings-status">
-          <input
-            className="input emoji"
-            aria-label="Status emoji"
-            placeholder="🎧"
-            maxLength={16}
-            value={emoji}
-            onChange={(e) => { setEmoji(e.target.value); setStatusSaved(false); }}
-          />
-          <input
-            className="input"
-            aria-label="Status text"
-            placeholder="In a huddle"
-            maxLength={80}
-            value={statusText}
-            onChange={(e) => { setStatusText(e.target.value); setStatusSaved(false); }}
-          />
-          <select className="input" aria-label="Clear status after" value={clearChoice} onChange={(e) => setClearChoice(e.target.value)}>
-            <option value="forever">Until I clear it</option>
-            <option value="30">30 minutes</option>
-            <option value="60">1 hour</option>
-            <option value="240">4 hours</option>
-            <option value="today">Today</option>
-          </select>
-          <button className="btn small primary" disabled={busy} onClick={() => void saveStatus()}>
-            Set
+          <label className="field">
+            Emoji
+            <input
+              className="input emoji"
+              placeholder="🎧"
+              maxLength={16}
+              value={emoji}
+              onChange={(e) => { setEmoji(e.target.value); setStatusSaved(false); }}
+            />
+          </label>
+          <label className="field">
+            Status
+            <input
+              className="input"
+              placeholder="In a huddle"
+              maxLength={80}
+              value={statusText}
+              onChange={(e) => { setStatusText(e.target.value); setStatusSaved(false); }}
+            />
+          </label>
+          <label className="field">
+            Clear after
+            <select className="input" value={clearChoice} onChange={(e) => setClearChoice(e.target.value)}>
+              <option value="forever">Until I clear it</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="240">4 hours</option>
+              <option value="today">Today</option>
+            </select>
+          </label>
+        </div>
+        <div className="settings-row-actions form-actions">
+          <button className="btn primary" disabled={busy} onClick={() => void saveStatus()}>
+            Set status
           </button>
           {me.status && (
-            <button className="btn small" disabled={busy} onClick={() => void clearStatus()}>
+            <button className="btn" disabled={busy} onClick={() => void clearStatus()}>
               Clear
             </button>
           )}
@@ -269,7 +281,6 @@ function ProfileTab({ me, onMeChange }: { me: User; onMeChange: (me: User) => vo
             <span className="flash ok">Saved</span>
           </Flash>
         </div>
-        <p className="hint">{me.status ? `Current: ${me.status.emoji} ${me.status.text || 'set'}` : 'No status set'}</p>
         {statusError && (
           <p className="form-error" role="alert">
             {statusError}
@@ -286,35 +297,54 @@ function PrefsTab({ prefs, onPrefsChange }: { prefs: UserSettings; onPrefsChange
 
   return (
     <>
-      {prefs.desktopNotifications && 'Notification' in window && Notification.permission === 'default' && (
-        <button className="btn small" onClick={() => void Notification.requestPermission()}>
-          Allow notifications in the browser
-        </button>
-      )}
-      <label className="settings-row setting-toggle">
-        <span>
-          Sounds
-          <span className="hint">A chime when someone calls you</span>
-        </span>
-        <input type="checkbox" checked={prefs.sound} onChange={(e) => update({ sound: e.target.checked })} />
-      </label>
-      <label className="settings-row setting-toggle">
-        <span>
-          Desktop notifications
-          <span className="hint">Pop-ups for new messages while the tab is hidden</span>
-        </span>
-        <input type="checkbox" checked={prefs.desktopNotifications} onChange={(e) => update({ desktopNotifications: e.target.checked })} />
-      </label>
+      <section>
+        <h3>Alerts</h3>
+        <div className="toggle-list">
+          <label className="setting-toggle">
+            <span>
+              Sounds
+              <span className="hint">A chime when someone calls you</span>
+            </span>
+            <input type="checkbox" role="switch" className="switch" checked={prefs.sound} onChange={(e) => update({ sound: e.target.checked })} />
+          </label>
+          <label className="setting-toggle">
+            <span>
+              Desktop notifications
+              <span className="hint">Pop-ups for new messages while the tab is hidden</span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              className="switch"
+              checked={prefs.desktopNotifications}
+              onChange={(e) => update({ desktopNotifications: e.target.checked })}
+            />
+          </label>
+        </div>
+        {prefs.desktopNotifications && 'Notification' in window && Notification.permission === 'default' && (
+          <button className="btn" onClick={() => void Notification.requestPermission()}>
+            Allow notifications in the browser
+          </button>
+        )}
+      </section>
       <section>
         <h3>Notify me for</h3>
-        <label className="field check">
-          <input type="radio" name="notify-level" checked={prefs.notifyLevel === 'all'} onChange={() => update({ notifyLevel: 'all' })} />
-          Every message
-        </label>
-        <label className="field check">
-          <input type="radio" name="notify-level" checked={prefs.notifyLevel === 'mentions'} onChange={() => update({ notifyLevel: 'mentions' })} />
-          Mentions and direct messages only
-        </label>
+        <div className="choices">
+          <label className="choice">
+            <input type="radio" name="notify-level" checked={prefs.notifyLevel === 'all'} onChange={() => update({ notifyLevel: 'all' })} />
+            <span>
+              Every message
+              <span className="hint">Anything new in channels you're in</span>
+            </span>
+          </label>
+          <label className="choice">
+            <input type="radio" name="notify-level" checked={prefs.notifyLevel === 'mentions'} onChange={() => update({ notifyLevel: 'mentions' })} />
+            <span>
+              Mentions and DMs
+              <span className="hint">Only when someone needs you</span>
+            </span>
+          </label>
+        </div>
       </section>
       {error && (
         <p className="form-error" role="alert">
@@ -334,12 +364,23 @@ function AppearanceTab({ prefs, onPrefsChange }: { prefs: UserSettings; onPrefsC
   return (
     <section>
       <h3>Theme</h3>
-      {themes.map((t) => (
-        <label key={t.id} className="field check">
-          <input type="radio" name="theme" checked={prefs.theme === t.id} onChange={() => void onPrefsChange({ theme: t.id }).catch(() => {})} />
-          {t.label}
-        </label>
-      ))}
+      <div className="choices">
+        {themes.map((t) => (
+          <label key={t.id} className="choice theme-choice">
+            <span className={`theme-preview ${t.id}`} aria-hidden="true">
+              <span className="tp-side" />
+              <span className="tp-body">
+                <span className="tp-line" />
+                <span className="tp-line short" />
+              </span>
+            </span>
+            <span className="theme-choice-label">
+              <input type="radio" name="theme" checked={prefs.theme === t.id} onChange={() => void onPrefsChange({ theme: t.id }).catch(() => {})} />
+              {t.label}
+            </span>
+          </label>
+        ))}
+      </div>
     </section>
   );
 }
@@ -403,18 +444,20 @@ function SecurityTab({ onSignOut }: { onSignOut: () => void }) {
         <h3>Save your new recovery code</h3>
         <p className="hint">Your password is set. This recovery code is the only way back in if you forget it — save it now.</p>
         <p className="recovery-code">{code}</p>
-        <button
-          className="btn small"
-          type="button"
-          onClick={() => {
-            navigator.clipboard.writeText(code).then(() => setCopied(true)).catch(() => {});
-          }}
-        >
-          {copied ? 'Copied' : 'Copy code'}
-        </button>
-        <button className="btn small primary" type="button" onClick={() => setCode(null)}>
-          Done
-        </button>
+        <div className="settings-row-actions">
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(code).then(() => setCopied(true)).catch(() => {});
+            }}
+          >
+            {copied ? 'Copied' : 'Copy code'}
+          </button>
+          <button className="btn primary" type="button" onClick={() => setCode(null)}>
+            Done
+          </button>
+        </div>
       </section>
     );
   }
@@ -436,7 +479,7 @@ function SecurityTab({ onSignOut }: { onSignOut: () => void }) {
             Repeat new password
             <input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
           </label>
-          <button className="btn small primary" type="submit" disabled={busy}>
+          <button className="btn primary" type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Change password'}
           </button>
         </form>

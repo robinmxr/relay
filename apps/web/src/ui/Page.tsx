@@ -2,9 +2,9 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { BackIcon } from './icons';
 
 /**
- * A page of the workspace shell — settings, people, channel settings. It fills the main
- * pane beside the rail and sidebar, so the app stays one container, and the header's
- * back button (or Escape) returns to the channel you came from.
+ * A page of the workspace shell — settings, people, channel settings. While one is open the
+ * rail and sidebar step aside (`.app[data-page]`) so it takes the whole window, and the
+ * header's back button (or Escape) returns to the channel you came from.
  */
 export function Page({
   title,

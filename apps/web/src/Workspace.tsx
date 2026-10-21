@@ -558,7 +558,12 @@ export function Workspace({
   const huddleParticipants = huddle ? (state.channels.find((c) => c.id === huddle.session.channelId)?.huddle ?? [me.id]) : [];
 
   return (
-    <div className="app" data-view={mobileView} data-thread={state.threadId && !search ? 'open' : 'closed'}>
+    <div
+      className="app"
+      data-view={mobileView}
+      data-thread={state.threadId && !search ? 'open' : 'closed'}
+      data-page={route.name === 'chat' ? undefined : route.name}
+    >
       <WorkspaceRail
         workspaces={state.workspaces}
         activeId={workspaceId}
