@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Relay Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('relay-theme');
+        if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+      } catch (error) {}
+    })();
+  </script>
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 14.5a2 2 0 0 1-2 2H8.5L4 20V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M22 12h-6l-2 3h-4l-2-3H2"/></symbol>
+    <symbol id="i-status" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.1A8.5 8.5 0 0 1 9.9 3.5 8.5 8.5 0 1 0 20.5 14.1z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+    <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-decision" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.5 6h7M7 8.5c0 4 5 3 5 7.5M17 8.5c0 4-5 3-5 7.5"/></symbol>
+    <symbol id="i-design" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M8 7c7 0 8 4 8 8"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.8 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.8a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1.5"/><rect x="10.5" y="4" width="6" height="10" rx="1.5"/><rect x="18" y="4" width="3" height="13" rx="1.5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-github" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01M2 13v3M22 13v3"/></symbol>
+    <symbol id="i-slack" viewBox="0 0 24 24"><rect x="3" y="10" width="8" height="3.5" rx="1.75"/><rect x="10.5" y="3" width="3.5" height="8" rx="1.75"/><rect x="13" y="10.5" width="8" height="3.5" rx="1.75"/><rect x="10" y="13" width="3.5" height="8" rx="1.75"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M14.5 8.5l2 2"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-5-6-5M12 19h8"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M3 21v-5h5"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 4 4H6l4-4z"/></symbol>
+    <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar">
+      <a class="brand" href="#/chat" aria-label="Relay home">
+        <span class="brand-mark"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M9 19 19 9M12 9h7v7"/></svg></span>
+        <span class="brand-name">relay</span>
+      </a>
+
+      <div class="workspace">
+        <span class="workspace-avatar">AE</span>
+        <span class="workspace-copy"><strong>Acme</strong><small>Team trial · 9 days left</small></span>
+      </div>
+
+      <button class="palette-trigger" id="palette-trigger" type="button" aria-label="Search and jump (Command K)">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <span>Jump to…</span>
+        <kbd>⌘K</kbd>
+      </button>
+
+      <div class="sidebar-scroll">
+        <nav class="primary-nav" aria-label="Workspace">
+          <a class="nav-item" href="#/chat" data-nav="chat">
+            <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>
+            <span>Chat</span>
+          </a>
+          <a class="nav-item" href="#/inbox" data-nav="inbox">
+            <svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg>
+            <span>Inbox</span>
+            <span class="nav-badge" data-inbox-badge>4</span>
+          </a>
+          <a class="nav-item" href="#/status" data-nav="status">
+            <svg class="icon" aria-hidden="true"><use href="#i-status"/></svg>
+            <span>Status</span>
+          </a>
+          <a class="nav-item" href="#/library" data-nav="library">
+            <svg class="icon" aria-hidden="true"><use href="#i-library"/></svg>
+            <span>Library</span>
+          </a>
+          <a class="nav-item" href="#/settings" data-nav="settings">
+            <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
+            <span>Settings</span>
+          </a>
+          <a class="nav-item nav-item--plan" href="#/roadmap" data-nav="roadmap">
+            <svg class="icon" aria-hidden="true"><use href="#i-map"/></svg>
+            <span>Roadmap</span>
+          </a>
+        </nav>
+
+        <section class="conversation-section" aria-label="Channels">
+          <h2 class="conversation-heading">Channels</h2>
+          <div class="conversation-list" id="channel-list"></div>
+        </section>
+
+        <section class="conversation-section" aria-label="Direct messages">
+          <h2 class="conversation-heading">Direct messages</h2>
+          <div class="conversation-list" id="dm-list"></div>
+        </section>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="source-status">
+          <span class="sync-dot" aria-hidden="true"></span>
+          <span><strong>Sources synced</strong><small>GitHub · Slack bridge · 2m ago</small></span>
+        </div>
+        <div class="sidebar-footer">
+          <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch to light theme">
+            <svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+            <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+          </button>
+          <button class="icon-button" id="plan-tags-toggle" type="button" aria-pressed="false" aria-label="Show plan phase tags" title="Show plan phase tags">
+            <svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg>
+          </button>
+          <div class="profile">
+            <span class="avatar avatar--teal">AR</span>
+            <span class="profile-copy"><strong>Alex Rivera</strong><small>You</small></span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="view view--chat is-active" data-view="chat" aria-labelledby="chat-title">
+        <div class="chat-shell">
+          <header class="chat-heading">
+            <div class="chat-heading-copy">
+              <h1 id="chat-title"><span class="hash" data-chat-hash>#</span> <span data-chat-name>payments</span></h1>
+              <p data-chat-description></p>
+            </div>
+            <div class="chat-presence">
+              <button class="button button--secondary button--small" id="catch-up" type="button" data-feature="ai-catchup">
+                <svg class="icon" aria-hidden="true"><use href="#i-sparkle"/></svg>Catch up
+              </button>
+              <div class="avatar-stack" data-chat-avatars aria-hidden="true"></div>
+              <span data-chat-members></span>
+            </div>
+          </header>
+
+          <div class="chat-context" id="chat-context"></div>
+
+          <div class="chat-mobile-switcher">
+            <label class="sr-only" for="chat-conversation-select">Conversation</label>
+            <select id="chat-conversation-select"></select>
+          </div>
+
+          <div class="chat-feed" id="chat-feed"></div>
+
+          <form class="composer" id="composer">
+            <div class="composer-box">
+              <textarea id="message-input" rows="1" placeholder="Message #payments" aria-label="Message #payments"></textarea>
+              <button class="send-button" type="submit" aria-label="Send message">
+                <svg class="icon" aria-hidden="true"><use href="#i-send"/></svg>
+              </button>
+            </div>
+            <p class="composer-hint" data-feature="slash-commands"><strong>Enter</strong> to send <span>·</span> Try <code>/service checkout-api</code> or <code>/incident Payment timeouts</code></p>
+          </form>
+        </div>
+      </section>
+
+      <section class="view" data-view="inbox" aria-labelledby="inbox-title">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <h1 id="inbox-title">Inbox</h1>
+              <p>Reviews, failing checks, mentions and incidents, routed to you by ownership.</p>
+            </div>
+            <button class="text-button" id="mark-all-read" type="button">Mark all read</button>
+          </header>
+
+          <div class="filter-row" role="group" aria-label="Filter inbox">
+            <button class="filter-tab is-active" type="button" data-inbox-filter="all" aria-pressed="true">All <span class="count" data-inbox-count="all">0</span></button>
+            <button class="filter-tab" type="button" data-inbox-filter="reviews" aria-pressed="false">Reviews <span class="count" data-inbox-count="reviews">0</span></button>
+            <button class="filter-tab" type="button" data-inbox-filter="ci" aria-pressed="false">Failing CI <span class="count" data-inbox-count="ci">0</span></button>
+            <button class="filter-tab" type="button" data-inbox-filter="mentions" aria-pressed="false">Mentions <span class="count" data-inbox-count="mentions">0</span></button>
+            <button class="filter-tab" type="button" data-inbox-filter="incidents" aria-pressed="false">Incidents <span class="count" data-inbox-count="incidents">0</span></button>
+          </div>
+
+          <div class="inbox" id="inbox-list"></div>
+          <div class="empty-state" id="inbox-empty" hidden>
+            <span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+            <h2>Nothing waiting here</h2>
+            <p>You are caught up on this filter.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="status" aria-labelledby="status-title">
+        <div class="page page--status">
+          <header class="page-header">
+            <div>
+              <h1 id="status-title">Status</h1>
+              <p>Deploys, pipelines, incidents and service ownership, mirrored from GitHub, CI and PagerDuty.</p>
+            </div>
+            <div class="source-sync"><span class="sync-dot" aria-hidden="true"></span><span>Synced 2 min ago</span></div>
+          </header>
+
+          <div class="tabs" role="tablist" aria-label="Status views">
+            <button class="tab is-active" type="button" role="tab" aria-selected="true" data-status-tab="deployments">Deployments</button>
+            <button class="tab" type="button" role="tab" aria-selected="false" data-status-tab="pipelines">Pipelines</button>
+            <button class="tab" type="button" role="tab" aria-selected="false" data-status-tab="incidents">Incidents <span class="tab-alert" title="1 active incident"></span></button>
+            <button class="tab" type="button" role="tab" aria-selected="false" data-status-tab="services">Services</button>
+          </div>
+
+          <div class="status-panel is-active" data-status-panel="deployments" role="tabpanel" data-feature="deploy-board">
+            <section class="env-strip" aria-label="Environment health">
+              <div class="environment">
+                <div class="env-head"><span class="status-dot status-dot--ok"></span><span class="env-name">Production</span><span class="env-health">Healthy</span></div>
+                <div class="env-version">v2.14.1</div>
+                <div class="env-meta">Priya Nair <span>·</span> 18 min ago</div>
+              </div>
+              <div class="environment">
+                <div class="env-head"><span class="status-dot status-dot--ok"></span><span class="env-name">Staging</span><span class="env-health">Healthy</span></div>
+                <div class="env-version">v2.15.0-rc.2</div>
+                <div class="env-meta">Maya Chen <span>·</span> 1 hr ago</div>
+              </div>
+              <div class="environment">
+                <div class="env-head"><span class="status-dot status-dot--neutral"></span><span class="env-name">Preview</span><span class="env-health">4 active</span></div>
+                <div class="env-version">pr-1284</div>
+                <div class="env-meta">Maya Chen <span>·</span> 8 min ago</div>
+              </div>
+            </section>
+
+            <div class="section-heading">
+              <h2>Recent deployments</h2>
+              <span class="section-note" data-feature="gh-action"><svg class="icon" aria-hidden="true"><use href="#i-github"/></svg>Reported by the <code>relay</code> GitHub Action</span>
+            </div>
+
+            <table class="data-table">
+              <thead>
+                <tr><th>Environment</th><th>Release</th><th>Checks</th><th>Deployed by</th><th>When</th><th><span class="sr-only">Source</span></th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="row-env"><span class="status-dot status-dot--ok"></span>Production</span></td>
+                  <td><span class="release"><strong class="mono">v2.14.1</strong><span>Retry webhook delivery</span></span></td>
+                  <td><span class="check-status check-status--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Passed</span></td>
+                  <td><span class="person"><span class="avatar avatar--violet avatar--xxs">PN</span>Priya</span></td>
+                  <td class="muted-cell">18 min ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="deployment in GitHub" aria-label="Open deployment in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="row-env"><span class="status-dot status-dot--ok"></span>Staging</span></td>
+                  <td><span class="release"><strong class="mono">v2.15.0-rc.2</strong><span>Apple Pay experiment</span></span></td>
+                  <td><span class="check-status check-status--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Passed</span></td>
+                  <td><span class="person"><span class="avatar avatar--coral avatar--xxs">MC</span>Maya</span></td>
+                  <td class="muted-cell">1 hr ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="deployment in GitHub" aria-label="Open deployment in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="row-env"><span class="status-dot status-dot--neutral"></span>Preview</span></td>
+                  <td><span class="release"><strong class="mono">pr-1284</strong><span>Add Apple Pay to checkout</span></span></td>
+                  <td><span class="check-status check-status--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>3/3 checks</span></td>
+                  <td><span class="person"><span class="avatar avatar--coral avatar--xxs">MC</span>Maya</span></td>
+                  <td class="muted-cell">8 min ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="preview in GitHub" aria-label="Open preview in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="row-env"><span class="status-dot status-dot--ok"></span>Production</span></td>
+                  <td><span class="release"><strong class="mono">v2.14.0</strong><span>Tune checkout timeouts</span></span></td>
+                  <td><span class="check-status check-status--ok"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Passed</span></td>
+                  <td><span class="person"><span class="avatar avatar--blue avatar--xxs">JB</span>Jonas</span></td>
+                  <td class="muted-cell">Yesterday</td>
+                  <td><button class="row-link" type="button" data-mock-link="deployment in GitHub" aria-label="Open deployment in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="read-only-note"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Read-only by design. Locks, approvals and rollbacks stay in GitHub Environments or your CD tool; Relay shows what happened.</p>
+          </div>
+
+          <div class="status-panel" data-status-panel="pipelines" role="tabpanel" hidden>
+            <div class="metric-strip">
+              <div><span>Pass rate</span><strong>94%</strong><small>Last 7 days</small></div>
+              <div><span>Runs today</span><strong>18</strong><small>Across 4 repositories</small></div>
+              <div><span>Flaky checks</span><strong>2</strong><small>Flipped on re-run this week</small></div>
+            </div>
+
+            <div class="section-heading">
+              <h2>Recent pipeline runs</h2>
+              <button class="text-button" type="button" data-mock-link="Actions in GitHub">All runs <svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button>
+            </div>
+
+            <table class="data-table">
+              <thead>
+                <tr><th>Status</th><th>Repository</th><th>Commit</th><th>Branch</th><th>Duration</th><th>When</th><th><span class="sr-only">Source</span></th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="run-status run-status--fail"><span class="status-dot status-dot--fail"></span>Failed</span></td>
+                  <td><span class="repo-cell"><svg class="icon icon--fill" aria-hidden="true"><use href="#i-github"/></svg>acme/checkout</span></td>
+                  <td><span class="release"><strong>Dedupe provider events</strong><span class="mono">1d90be7</span></span></td>
+                  <td><span class="branch"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg>main</span></td>
+                  <td class="muted-cell">1m 48s</td>
+                  <td class="muted-cell">41 min ago</td>
+                  <td><a class="row-link" href="#/chat/payments" data-goto-feature="ci-context" aria-label="Open failure context in #payments" title="Open failure context in #payments"><svg class="icon" aria-hidden="true"><use href="#i-arrow-right"/></svg></a></td>
+                </tr>
+                <tr>
+                  <td><span class="run-status run-status--ok"><span class="status-dot status-dot--ok"></span>Passed</span></td>
+                  <td><span class="repo-cell"><svg class="icon icon--fill" aria-hidden="true"><use href="#i-github"/></svg>acme/checkout</span></td>
+                  <td><span class="release"><strong>Retry webhook delivery</strong><span class="mono">8f2c1a4</span></span></td>
+                  <td><span class="branch"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg>main</span></td>
+                  <td class="muted-cell">3m 12s</td>
+                  <td class="muted-cell">1 hr ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="run in GitHub Actions" aria-label="Open run in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="run-status run-status--running"><span class="status-dot status-dot--running"></span>Running</span></td>
+                  <td><span class="repo-cell"><svg class="icon icon--fill" aria-hidden="true"><use href="#i-github"/></svg>acme/platform</span></td>
+                  <td><span class="release"><strong>Rate-limit gateway</strong><span class="mono">c73e4f2</span></span></td>
+                  <td><span class="branch"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg>feat/rate-limits</span></td>
+                  <td class="muted-cell">2m 03s</td>
+                  <td class="muted-cell">Running now</td>
+                  <td><button class="row-link" type="button" data-mock-link="run in GitHub Actions" aria-label="Open run in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="run-status run-status--ok"><span class="status-dot status-dot--ok"></span>Passed</span></td>
+                  <td><span class="repo-cell"><svg class="icon icon--fill" aria-hidden="true"><use href="#i-github"/></svg>acme/mobile</span></td>
+                  <td><span class="release"><strong>Fix deep links on iOS</strong><span class="mono">aa41c08</span></span></td>
+                  <td><span class="branch"><svg class="icon" aria-hidden="true"><use href="#i-branch"/></svg>main</span></td>
+                  <td class="muted-cell">4m 30s</td>
+                  <td class="muted-cell">2 hr ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="run in GitHub Actions" aria-label="Open run in GitHub"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="status-panel" data-status-panel="incidents" role="tabpanel" hidden>
+            <article class="incident-active" data-feature="incident-rooms">
+              <div class="incident-flags">
+                <span class="severity severity--sev1"><span class="severity-dot"></span>SEV 1</span>
+                <span class="incident-state">Monitoring</span>
+                <span class="incident-duration"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>Open 58 min</span>
+              </div>
+              <h2>Elevated 5xx errors on checkout</h2>
+              <p>Error rate returned below 0.2% after the circuit breaker rollout. The team is monitoring for 30 minutes before resolving.</p>
+              <div class="incident-meta">INC-042 <span>·</span> checkout-api <span>·</span> Owners: Payments <span>·</span> Paged via PagerDuty</div>
+              <a class="text-button incident-link" href="#/chat/inc-042">Open incident room <svg class="icon" aria-hidden="true"><use href="#i-arrow-right"/></svg></a>
+
+              <ol class="timeline">
+                <li><time>07:31</time><div><strong>Mitigated</strong><span>Circuit breaker deployed to production. Error rate fell below 0.2%.</span></div></li>
+                <li><time>07:24</time><div><strong>Identified</strong><span>Provider timeout triggered a retry storm. Rollback started on the webhook worker.</span></div></li>
+                <li><time>07:18</time><div><strong>Investigating</strong><span>Checkout 5xx rate at 4.8% in us-east-1. On-call paged by PagerDuty.</span></div></li>
+                <li><time>07:12</time><div><strong>Opened</strong><span>Alert fired from <span class="mono">checkout-api</span> error budget.</span></div></li>
+              </ol>
+              <p class="timeline-note">Timeline built from messages flagged in <strong>#inc-042</strong>. Paging and escalation stay in PagerDuty.</p>
+            </article>
+
+            <div class="section-heading">
+              <h2>Recent incidents</h2>
+            </div>
+
+            <table class="data-table">
+              <thead>
+                <tr><th>Incident</th><th>Severity</th><th>Status</th><th>Duration</th><th>Service</th><th>When</th><th><span class="sr-only">Source</span></th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="release"><strong>Intermittent checkout latency</strong><span class="mono">INC-039</span></span></td>
+                  <td><span class="severity severity--sev2"><span class="severity-dot"></span>SEV 2</span></td>
+                  <td><span class="resolved-status">Resolved</span></td>
+                  <td class="muted-cell">42 min</td>
+                  <td class="mono muted-cell">checkout-api</td>
+                  <td class="muted-cell">Yesterday</td>
+                  <td><button class="row-link" type="button" data-mock-link="archived room #inc-039" aria-label="Open incident"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="release"><strong>Webhook backlog after provider outage</strong><span class="mono">INC-036</span></span></td>
+                  <td><span class="severity severity--sev2"><span class="severity-dot"></span>SEV 2</span></td>
+                  <td><span class="resolved-status">Resolved</span></td>
+                  <td class="muted-cell">1 hr 18 min</td>
+                  <td class="mono muted-cell">webhook-worker</td>
+                  <td class="muted-cell">3 days ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="archived room #inc-036" aria-label="Open incident"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td><span class="release"><strong>Expired signing certificate</strong><span class="mono">INC-031</span></span></td>
+                  <td><span class="severity severity--sev3"><span class="severity-dot"></span>SEV 3</span></td>
+                  <td><span class="resolved-status">Resolved</span></td>
+                  <td class="muted-cell">24 min</td>
+                  <td class="mono muted-cell">edge</td>
+                  <td class="muted-cell">8 days ago</td>
+                  <td><button class="row-link" type="button" data-mock-link="archived room #inc-031" aria-label="Open incident"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="read-only-note"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Relay orchestrates and links. Paging, escalation and role assignment stay in PagerDuty or incident.io.</p>
+          </div>
+
+          <div class="status-panel" data-status-panel="services" role="tabpanel" hidden>
+            <div class="section-heading">
+              <h2>Service catalog</h2>
+              <span class="section-note"><svg class="icon" aria-hidden="true"><use href="#i-sync"/></svg>Owners synced from CODEOWNERS</span>
+            </div>
+            <div class="service-list" id="service-list" data-feature="service-catalog"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="library" aria-labelledby="library-title">
+        <div class="page page--library">
+          <header class="page-header">
+            <div>
+              <h1 id="library-title">Library</h1>
+              <p>Runbooks and docs in Markdown, plus decisions captured from messages.</p>
+            </div>
+            <button class="button button--primary" id="new-document" type="button"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New document</button>
+          </header>
+
+          <div class="library-toolbar">
+            <div class="tabs tabs--library" role="tablist" aria-label="Library collections">
+              <button class="tab is-active" type="button" role="tab" aria-selected="true" data-library-tab="documents">Documents <span class="count" data-library-count="documents">5</span></button>
+              <button class="tab" type="button" role="tab" aria-selected="false" data-library-tab="decisions">Decisions <span class="count" data-library-count="decisions">5</span></button>
+              <button class="tab" type="button" role="tab" aria-selected="false" data-library-tab="design">Design <span class="count" data-library-count="design">4</span></button>
+            </div>
+            <div class="library-tools">
+              <label class="search-field">
+                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                <span class="sr-only">Search the library</span>
+                <input id="library-search" type="search" placeholder="Search" autocomplete="off">
+              </label>
+              <div class="view-switch" id="library-view-switch" role="group" aria-label="Library layout" hidden>
+                <button class="view-switch-button" type="button" data-library-mode="list" aria-pressed="false" aria-label="List view"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg></button>
+                <button class="view-switch-button" type="button" data-library-mode="board" aria-pressed="true" aria-label="Board view"><svg class="icon" aria-hidden="true"><use href="#i-board"/></svg></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="library-content" id="library-content"></div>
+        </div>
+      </section>
+
+      <section class="view" data-view="settings" aria-labelledby="settings-title">
+        <div class="page">
+          <header class="page-header">
+            <div>
+              <h1 id="settings-title">Settings</h1>
+              <p>Integrations, notifications, tokens and agents for the Acme workspace.</p>
+            </div>
+          </header>
+
+          <div class="tabs" role="tablist" aria-label="Settings sections">
+            <button class="tab is-active" type="button" role="tab" aria-selected="true" data-settings-tab="integrations">Integrations</button>
+            <button class="tab" type="button" role="tab" aria-selected="false" data-settings-tab="notifications">Notifications</button>
+            <button class="tab" type="button" role="tab" aria-selected="false" data-settings-tab="developers">Tokens &amp; agents</button>
+            <button class="tab" type="button" role="tab" aria-selected="false" data-settings-tab="plan">Plan</button>
+          </div>
+
+          <div class="settings-content" id="settings-content"></div>
+        </div>
+      </section>
+
+      <section class="view" data-view="roadmap" aria-labelledby="roadmap-title">
+        <div class="page page--roadmap">
+          <header class="page-header">
+            <div>
+              <h1 id="roadmap-title">Roadmap</h1>
+              <p>Plan v2, feature by feature. Open any feature in the prototype, then mark what to build.</p>
+            </div>
+            <div class="roadmap-actions">
+              <button class="button button--secondary" id="roadmap-reset" type="button">Reset to plan</button>
+              <button class="button button--primary" id="roadmap-export" type="button"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Copy as Markdown</button>
+            </div>
+          </header>
+
+          <div class="roadmap-summary" id="roadmap-summary"></div>
+
+          <div class="filter-row" role="group" aria-label="Filter roadmap">
+            <button class="filter-tab is-active" type="button" data-roadmap-filter="all" aria-pressed="true">All features</button>
+            <button class="filter-tab" type="button" data-roadmap-filter="prototyped" aria-pressed="false">In the prototype</button>
+            <button class="filter-tab" type="button" data-roadmap-filter="changed" aria-pressed="false">Changed from plan</button>
+          </div>
+
+          <div class="roadmap" id="roadmap"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="doc-overlay" hidden>
+    <div class="modal modal--document" role="dialog" aria-modal="true" aria-labelledby="doc-title" tabindex="-1">
+      <header class="modal-bar">
+        <div class="modal-context"><span>Library</span><span class="context-sep">/</span><span id="doc-kind">Document</span></div>
+        <div class="modal-actions">
+          <button class="icon-button" id="copy-doc-link" type="button" aria-label="Copy document link" title="Copy link"><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg></button>
+          <button class="icon-button" id="close-doc" type="button" aria-label="Close document" title="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+        </div>
+      </header>
+      <div class="document-scroll">
+        <div class="document-inner">
+          <header class="doc-heading">
+            <div class="doc-flags"><span class="doc-type" id="doc-type">Document</span><span class="doc-status" id="doc-status" hidden></span></div>
+            <h1 id="doc-title"></h1>
+            <p class="doc-lede" id="doc-summary"></p>
+            <div class="doc-byline">
+              <span class="avatar avatar--coral avatar--xs" id="doc-owner-avatar">MC</span>
+              <span id="doc-owner">Maya Chen</span>
+              <span class="byline-sep">·</span>
+              <span id="doc-updated">Updated 2h ago</span>
+            </div>
+          </header>
+          <article class="markdown" id="doc-body"></article>
+          <footer class="doc-footer">
+            <span id="doc-source">Linked from #product</span>
+            <button class="button button--secondary" id="edit-doc" type="button"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg>Edit</button>
+          </footer>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="editor-overlay" hidden>
+    <div class="modal modal--editor" role="dialog" aria-modal="true" aria-labelledby="editor-heading" tabindex="-1">
+      <form id="editor-form" novalidate>
+        <header class="modal-bar">
+          <div class="modal-context"><span>Library</span><span class="context-sep">/</span><span id="editor-heading">New document</span></div>
+          <div class="modal-actions">
+            <button class="icon-button" id="close-editor" type="button" aria-label="Close editor" title="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+          </div>
+        </header>
+        <div class="editor-body">
+          <input class="editor-title" id="editor-title" type="text" placeholder="Untitled document" aria-label="Document title" required>
+          <div class="editor-tabs" role="tablist" aria-label="Editor mode">
+            <button class="editor-tab is-active" type="button" role="tab" aria-selected="true" data-editor-tab="write">Write</button>
+            <button class="editor-tab" type="button" role="tab" aria-selected="false" data-editor-tab="preview">Preview</button>
+            <span class="editor-hint">Markdown supported</span>
+          </div>
+          <textarea class="editor-textarea" id="editor-content" aria-label="Document content" placeholder="Start writing…"></textarea>
+          <div class="editor-preview markdown" id="editor-preview" hidden></div>
+        </div>
+        <footer class="editor-footer">
+          <span id="editor-meta">Saved to your library</span>
+          <div class="editor-actions">
+            <button class="button button--quiet" id="cancel-editor" type="button">Cancel</button>
+            <button class="button button--primary" type="submit">Save document</button>
+          </div>
+        </footer>
+      </form>
+    </div>
+  </div>
+
+  <div class="overlay overlay--palette" id="palette-overlay" hidden>
+    <div class="modal modal--palette" role="dialog" aria-modal="true" aria-label="Jump to">
+      <label class="palette-search">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <span class="sr-only">Search screens, channels, features and docs</span>
+        <input id="palette-input" type="search" placeholder="Jump to a screen, channel, feature or doc…" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="palette-results">
+      </label>
+      <div class="palette-results" id="palette-results" role="listbox"></div>
+      <footer class="palette-footer"><span><kbd>↑</kbd><kbd>↓</kbd> to move</span><span><kbd>Enter</kbd> to open</span><span><kbd>Esc</kbd> to close</span></footer>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
