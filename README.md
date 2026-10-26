@@ -1,6 +1,10 @@
 # Relay
 
-A Slack-style team chat. It has:
+Relay is becoming a centralized engineering workspace: chat that understands your repo, your CI, your services and your incidents. Pull requests become threads whose replies sync both ways with GitHub. Failing checks show up with the failing step and log excerpt. Incidents get a room with the runbook and the owners. Coding agents post their progress where the team can answer.
+
+**Where it's going:** [`design/`](design/README.md) holds the product plan ([PLAN.md](design/PLAN.md)), a clickable prototype of the target product, and the research and decision docs for the next phases. Open the prototype with `open design/prototype/index.html`.
+
+**What's in this repo today** is the chat foundation that plan builds on. It runs as a self-hosted service with no GitHub integration yet. It has:
 
 - workspaces, channels and direct messages
 - threads, reactions and @mentions
@@ -156,7 +160,7 @@ unsigned elsewhere, which is fine for testing but means users have to allow the 
 
 ## npm package
 
-`packages/relay-chat` publishes the server, the built web client and the desktop shell as one npm package, [`relay-chat`](packages/relay-chat/README.md): `npx relay-chat` runs the server, `relay-chat desktop` opens the desktop app (Electron, installed per platform).
+`packages/relay-chat` publishes the server, the built web client and the desktop shell as one npm package, [`relay-chat`](packages/relay-chat/README.md): `npx relay-chat` runs the server, `relay-chat desktop` opens the desktop app (Electron, installed per platform). Once Relay is hosted, the plan is for this package to become the `relay` CLI and SDK instead of a server installer.
 
 ```sh
 cd packages/relay-chat
@@ -166,6 +170,9 @@ npm pack           # inspect the tarball; npm publish also runs the build
 
 ## Known gaps
 
+These are gaps in the current code. The plan for closing them, and for moving from a self-hosted install to one hosted multi-tenant service, is in [design/PLAN.md](design/PLAN.md) §9–11.
+
+- **No developer integrations yet.** No GitHub App, PR threads, CI context, service catalog, CLI or MCP server. These are Phases 2–5 of the plan.
 - **Passwords, not full auth.** Sign-up, sign-in, recovery codes, a session list (`/api/me/sessions`) and owner password resets (a one-time password handed over in person), but no email delivery and no SSO. `RELAY_DEV_SIGNIN=true` re-opens passwordless email sign-in, for bootstrapping only.
 - **Huddles live on one server process.** Huddle membership is kept in memory, so with several processes behind Redis, everyone in one huddle must reach the same process (sticky sessions). The mesh topology tops out around 5 or 6 people; beyond that it needs an SFU.
 - **Presence after a crash.** If a server process crashes, its users read as offline after 60 seconds, but no "went offline" event is sent.
