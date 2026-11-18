@@ -713,3 +713,22 @@ test('sign-in is rate limited per account across IPs', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('websocket closes sockets that skip auth or flood frames', async () => {
+  const open = async () => {
+    const ws = new WebSocket(`ws://${host}/ws`);
+    await new Promise<void>((resolve) => ws.once('open', () => resolve()));
+    return ws;
+  };
+  const closeCode = (ws: WebSocket) => new Promise<number>((resolve) => ws.once('close', (c) => resolve(c)));
+
+  const early = await open();
+  early.send(JSON.stringify({ type: 'ping' }));
+  assert.equal(await closeCode(early), 4401);
+
+  const flood = await open();
+  flood.send(JSON.stringify({ type: 'auth', token: alice.token }));
+  const closed = closeCode(flood);
+  for (let i = 0; i < 80; i++) flood.send(JSON.stringify({ type: 'ping' }));
+  assert.equal(await closed, 4429);
+});
