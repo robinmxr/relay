@@ -7,7 +7,7 @@
   "author": "Relay",
   "main": "dist/main.js",
   "relay": {
-    "webUrl": "https://192.168.21.155:4443",
+    "webUrl": "",
     "updateUrl": "https://github.com/robinmxr/relay/releases/latest/download/",
     "pinnedCert": ""
   },
