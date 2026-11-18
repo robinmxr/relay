@@ -21,7 +21,7 @@
     bot: { icon: 'bot', fill: false }
   };
 
-  // Plan v2 (design/PLAN.md §9). Every feature can point at the place the prototype shows it.
+  // Plan v2.1 (design/PLAN.md §9). Every feature can point at the place the prototype shows it.
   const phases = [
     { id: 'p0', label: 'Phase 0', title: 'Design validation', weeks: '1 week', goal: 'Make sure we build the right wedge before changing the architecture.' },
     { id: 'p1', label: 'Phase 1', title: 'Centralized foundation', weeks: '3–5 weeks', goal: 'One real multi-tenant service that can safely host a design partner.' },
@@ -38,7 +38,7 @@
 
   const features = [
     { id: 'interviews', phase: 'p0', title: 'Problem interviews and 3 design partners', desc: '5–10 interviews, a ranked problem list and a 30-day pilot agreement.' },
-    { id: 'kill-criteria', phase: 'p0', title: 'Kill criteria agreed up front', desc: 'Stop and re-interview if fewer than 2 of 3 partners use PR threads weekly.', route: '#/roadmap', target: 'kill-criteria' },
+    { id: 'kill-criteria', phase: 'p0', title: 'Review triggers agreed up front', desc: 'Bands, not verdicts: continue, continue narrower, change the wedge, or pause.', route: '#/roadmap', target: 'kill-criteria' },
     { id: 'gh-login', phase: 'p1', title: 'GitHub sign-in and magic links', desc: 'GitHub OAuth first; Google and passwords only on request.' },
     { id: 'tenancy', phase: 'p1', title: 'Workspaces, roles and invites', desc: 'Owner, admin, member and guest; invites suggested from the GitHub org.' },
     { id: 'entitlements', phase: 'p1', title: 'Entitlements service', desc: 'Every gated feature checks it server-side; plans assigned manually until GA.', route: '#/settings/plan' },
@@ -59,9 +59,10 @@
     { id: 'search-filters', phase: 'p3', title: 'Search filters', desc: 'in:, from:, has:code, is:thread, is:decision, before:, after:.' },
     { id: 'tokens-webhooks', phase: 'p3', title: 'API tokens and incoming webhooks', desc: 'Scoped, hashed, revocable tokens; post from CI with one curl.', route: '#/settings/developers' },
     { id: 'slash-commands', phase: 'p3', title: 'Slash-command framework', desc: '/service, /incident and friends from the composer.', route: '#/chat/payments' },
-    { id: 'cli-v0', phase: 'p3', title: 'CLI v0', desc: 'relay login, send and search.', route: '#/settings/developers' },
-    { id: 'slack-bridge', phase: 'p3', title: 'Slack bridge', desc: 'Two-way mirror of selected channels so a team can trial Relay without leaving Slack.', route: '#/chat/design' },
-    { id: 'slack-import', phase: 'p3', title: 'Slack import', desc: 'Public channels, users and history.', route: '#/settings/integrations' },
+    { id: 'cli-v0', phase: 'p5', title: 'CLI v0 (folded into v1)', desc: 'login, send and search, shipped with the rest of the CLI in Phase 5.', route: '#/settings/developers' },
+    { id: 'slack-bridge', phase: 'later', title: 'Slack bridge (deferred)', desc: 'Two-way message mirroring. Deferred until a partner is blocked without it (D8); Phase 3 ships import plus notifications instead.', route: '#/chat/design' },
+    { id: 'slack-import', phase: 'p3', title: 'Slack import', desc: 'Public channels, users and history, read-only, from the workspace export.', route: '#/settings/integrations' },
+    { id: 'slack-notify', phase: 'p2', title: 'Slack notifications (one-way)', desc: 'PR threads, reviews and failing checks on main post one line into a chosen Slack channel, with a link back.', route: '#/settings/integrations' },
     { id: 'service-catalog', phase: 'p4', title: 'Service catalog with CODEOWNERS sync', desc: 'Owners, on-call, repo, runbook, health and recent deploys per service.', route: '#/status/services' },
     { id: 'owner-routing', phase: 'p4', title: 'Ownership-aware routing', desc: 'PR, check-failure and incident notifications go to owners, not whole channels.', route: '#/inbox' },
     { id: 'incident-rooms', phase: 'p4', title: 'Lightweight incident rooms', desc: '/incident opens a room with runbook, PagerDuty link and a timeline built from flagged messages.', route: '#/chat/inc-042' },
@@ -291,14 +292,14 @@
     },
     design: {
       name: 'design',
-      kind: 'bridged',
-      description: 'Design critiques and the decisions behind them. Bridged with Slack while the team trials Relay.',
+      kind: 'imported',
+      description: 'Design critiques and the decisions behind them. History imported from Slack; new messages stay in Relay.',
       members: 16,
       avatars: ['maya', 'dana', 'sam'],
       context: [
-        { icon: 'slack', label: 'Slack #design', note: 'two-way bridge · in sync', href: '#/settings/integrations', feature: 'slack-bridge' }
+        { icon: 'slack', label: 'Slack #design', note: 'imported · 312 messages', href: '#/settings/integrations', feature: 'slack-import' }
       ],
-      composerNote: 'Messages here are also posted to Slack #design.',
+      composerNote: 'Imported from Slack. New messages stay in Relay; Slack gets a notification when the team is needed.',
       messages: [
         { id: 'd1', type: 'message', person: 'maya', time: '9:18 AM', html: '<p>Posted the checkout redesign exploration. Two directions: wallet-first, or split wallet and card panels. I lean split.</p>', attachment: { type: 'doc', docId: 'checkout-redesign' } },
         { id: 'd2', type: 'message', person: 'dana', via: 'slack', time: '9:26 AM', html: '<p>Split feels calmer. Can you add the empty and error states before Thursday?</p>' },
@@ -404,7 +405,7 @@
     { id: 'n5', group: 'Today', kind: 'mentions', unread: false, source: 'relay', feature: 'activity-inbox', text: '<strong>Sam Okafor</strong> mentioned you in <strong>#releases</strong>', meta: '“Can you sanity-check the 2.15 notes?” · 3 hr ago', why: '@mention', route: '#/chat/releases/r2' },
     { id: 'n6', group: 'Earlier', kind: 'reviews', unread: false, source: 'github', text: '<strong>Jonas Berg</strong> requested changes on <strong>Split webhook retries</strong>', meta: 'acme/checkout · PR #1279 · Yesterday', why: 'You authored this PR', route: '#/chat/payments' },
     { id: 'n7', group: 'Earlier', kind: 'incidents', unread: false, source: 'alert', text: '<strong>INC-039</strong> was resolved: Intermittent checkout latency', meta: 'checkout-api · SEV 2 · Yesterday', why: 'You own checkout-api', route: '#/status/incidents' },
-    { id: 'n8', group: 'Earlier', kind: 'mentions', unread: false, source: 'slack', text: '<strong>Dana Lee</strong> replied to your note in <strong>#design</strong>', meta: 'via Slack bridge · “Added the empty and error states.” · Yesterday', why: 'Reply to your thread', route: '#/chat/design/d2' }
+    { id: 'n8', group: 'Earlier', kind: 'mentions', unread: false, source: 'slack', text: '<strong>Dana Lee</strong> replied to your note in <strong>#design</strong>', meta: 'from Slack · “Added the empty and error states.” · Yesterday', why: 'Reply to your thread', route: '#/chat/design/d2' }
   ];
 
   const services = [
@@ -1659,7 +1660,7 @@ Test the chat and active incident paths on a 390 px viewport.`
     const person = people[message.person] || people.alex;
     const badges = [];
     if (person.agent) badges.push(`<span class="author-badge author-badge--agent" data-feature="agents">${iconHTML('bot')}Agent</span>`);
-    if (message.via === 'slack') badges.push(`<span class="author-badge" data-feature="slack-bridge">${iconHTML('slack')}via Slack</span>`);
+    if (message.via === 'slack') badges.push(`<span class="author-badge" data-feature="slack-import">${iconHTML('slack')}from Slack</span>`);
     if (message.ephemeral) badges.push('<span class="author-badge">Only visible to you</span>');
 
     const reply = message.replyTo
@@ -1702,8 +1703,8 @@ Test the chat and active incident paths on a 390 px viewport.`
         const lead = channel.kind === 'incident'
           ? `<span class="conversation-hash conversation-hash--incident">${iconHTML('alert')}</span>`
           : '<span class="conversation-hash">#</span>';
-        const trail = channel.kind === 'bridged'
-          ? `<span class="conversation-trail" title="Bridged with Slack">${iconHTML('slack')}</span>`
+        const trail = (channel.kind === 'imported' || channel.kind === 'bridged')
+          ? `<span class="conversation-trail" title="Imported from Slack">${iconHTML('slack')}</span>`
           : channel.kind === 'repo'
             ? `<span class="conversation-trail" title="Mapped to a GitHub repo">${iconHTML('github', true)}</span>`
             : '';
@@ -1808,7 +1809,7 @@ Test the chat and active incident paths on a 390 px viewport.`
     const hint = $('.composer-hint');
     if (hint) {
       hint.innerHTML = channel.composerNote
-        ? `<span data-feature="slack-bridge">${iconHTML('slack')}${escapeHTML(channel.composerNote)}</span>`
+        ? `<span data-feature="slack-import">${iconHTML('slack')}${escapeHTML(channel.composerNote)}</span>`
         : '<strong>Enter</strong> to send <span>·</span> Try <code>/service checkout-api</code> or <code>/incident Payment timeouts</code>';
     }
 
@@ -2323,17 +2324,24 @@ Test the chat and active incident paths on a 390 px viewport.`
         </table>
       </section>
 
-      <section class="setting-card" data-feature="slack-bridge">
-        <header>${iconHTML('slack')}<div><h2>Slack</h2><p>Run Relay beside Slack while the team trials it.</p></div><span class="pill pill--ok">Bridge on</span></header>
+      <section class="setting-card" data-feature="slack-import slack-notify">
+        <header>${iconHTML('slack')}<div><h2>Slack</h2><p>History comes in once; notifications go out. No Slack admin approval for either.</p></div><span class="pill pill--ok">Import complete</span></header>
         <div class="bridge-row">
-          <a href="#/chat/design" class="bridge-end">#design</a>
-          <span class="bridge-arrow">${iconHTML('sync')}Two-way</span>
           <span class="bridge-end">Slack #design</span>
-          <span class="muted">In sync · 0 dropped · last message 2 min ago</span>
+          <span class="bridge-arrow">${iconHTML('check')}Imported</span>
+          <a href="#/chat/design" class="bridge-end">#design</a>
+          <span class="muted">312 messages · 24 users · re-run safe</span>
         </div>
+        <div class="bridge-row">
+          <a href="#/chat/payments" class="bridge-end">#payments</a>
+          <span class="bridge-arrow">${iconHTML('bell')}Notifies</span>
+          <span class="bridge-end">Slack #eng-notify</span>
+          <span class="muted">PR threads · reviews · failing checks · incidents</span>
+        </div>
+        <p class="muted">A two-way message bridge is deferred until a design partner is blocked without it (D8). Nothing here depends on it.</p>
         <div class="setting-actions">
-          <button class="button button--secondary button--small" type="button" data-mock-link="bridge setup for another Slack channel">${iconHTML('plus')}Bridge another channel</button>
-          <button class="button button--secondary button--small" type="button" data-mock-link="Slack import (public channels, users, history)" data-feature="slack-import">Import from Slack ${phaseChip('slack-import')}</button>
+          <button class="button button--secondary button--small" type="button" data-mock-link="Slack notification target" data-feature="slack-notify">${iconHTML('plus')}Add a notification target</button>
+          <button class="button button--secondary button--small" type="button" data-mock-link="Slack import re-run" data-feature="slack-import">Re-run import</button>
         </div>
       </section>
 
@@ -2434,7 +2442,7 @@ relay tail "#payments"</code></pre><button class="copy-code" type="button">Copy<
         <header>${iconHTML('card')}<div><h2>Team trial</h2><p>9 days left. Plans are assigned by Relay during the pilot.</p></div><span class="pill pill--ok">Team</span></header>
         <ul class="entitlements">
           <li>${iconHTML('check')}Review inbox and PR threads</li>
-          <li>${iconHTML('check')}Slack bridge</li>
+          <li>${iconHTML('check')}Slack import and notifications</li>
           <li>${iconHTML('check')}CLI, MCP and agents</li>
           <li><span class="meter"><span style="width: 40%"></span></span>Integrations · 4 of 10</li>
           <li><span class="meter"><span style="width: 3%"></span></span>Files · 3.2 of 100 GB</li>
@@ -2558,16 +2566,17 @@ relay tail "#payments"</code></pre><button class="copy-code" type="button">Copy<
       </div>
       <div class="roadmap-callouts">
         <div class="callout callout--milestone">
-          <strong>${iconHTML('github', true)}First milestone · about week 10</strong>
+          <strong>${iconHTML('github', true)}First milestone · end of Phase 2</strong>
           <p>A design partner signs up with GitHub, sees a real PR become a thread in #payments, and replies there to have it land on GitHub.</p>
           <button class="text-button" type="button" data-goto-feature="pr-sync">See it in the prototype ${iconHTML('arrow-right')}</button>
         </div>
         <div class="callout" data-feature="kill-criteria" id="kill-criteria">
-          <strong>${iconHTML('alert')}Kill criteria</strong>
+          <strong>${iconHTML('alert')}How a review is read</strong>
           <ul>
-            <li>After the Phase 2 pilot: fewer than 2 of 3 partners use PR threads weekly → re-interview before Phase 3.</li>
-            <li>After Phase 3: no team moves a second channel off Slack within 30 days → investigate before Phase 4.</li>
-            <li>Before Phase 6: activation below 20% → fix activation before AI.</li>
+            <li>Cadence is fixed; thresholds are bands. Red means one change, not a stop.</li>
+            <li>Every review ends in one of four outcomes: continue, continue narrower (the default), change the wedge, or pause.</li>
+            <li>Absolute: 0 tenant-isolation bugs, sync failures under 0.5%, imports that never duplicate.</li>
+            <li>One bad month with three partners is noise. Act on two or three weeks moving the same way.</li>
           </ul>
         </div>
       </div>
@@ -2633,7 +2642,7 @@ relay tail "#payments"</code></pre><button class="copy-code" type="button">Copy<
   }
 
   function roadmapMarkdown() {
-    const lines = ['# Relay roadmap decisions', '', '_Plan v2 · exported from the prototype_', ''];
+    const lines = ['# Relay roadmap decisions', '', '_Plan v2.1 · exported from the prototype_', ''];
 
     ['build', 'later', 'cut'].forEach((value) => {
       const items = features.filter((feature) => decisionFor(feature) === value);
@@ -2686,7 +2695,7 @@ relay tail "#payments"</code></pre><button class="copy-code" type="button">Copy<
         roadmapDecisions = {};
         saveDecisions();
         renderRoadmap();
-        showToast('Decisions reset to plan v2');
+        showToast('Decisions reset to plan v2.1');
       });
     }
 
