@@ -507,9 +507,9 @@ export function Workspace({
 
   const loadOlder = useCallback(async () => {
     const id = stateRef.current.activeId;
-    const first = id ? stateRef.current.messages[id]?.[0] : undefined;
-    if (!id || !first) return;
-    const page = await api<MessagePage>(`/channels/${id}/messages?before=${encodeURIComponent(first.createdAt)}`);
+    const cursor = id ? stateRef.current.cursors[id] : null;
+    if (!id || !cursor) return;
+    const page = await api<MessagePage>(`/channels/${id}/messages?cursor=${encodeURIComponent(cursor)}`);
     dispatch({ type: 'messages', channelId: id, ...page, older: true });
   }, []);
 

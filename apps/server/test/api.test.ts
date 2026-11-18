@@ -637,6 +637,27 @@ test('two posts racing for the same file: exactly one gets it', async () => {
   assert.equal(page.messages.find((m) => m.body.startsWith('race '))?.files[0]?.id, up.json.id);
 });
 
+test('paging does not skip messages that share a timestamp', async () => {
+  const ch = (await call<{ id: string }>('POST', `/api/workspaces/${hq}/channels`, alice.token, { name: 'same-time' })).json.id;
+  const db = ctx.ctx.db;
+  const at = '2026-01-01T00:00:00.000001Z';
+  for (let i = 0; i < 7; i++) {
+    await db.query('insert into messages (channel_id, user_id, body, created_at) values ($1, $2, $3, $4)', [ch, alice.user.id, `tie ${i}`, at]);
+  }
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  for (let pages = 0; pages < 10; pages++) {
+    const url: string = `/api/channels/${ch}/messages?limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const page: MessagePage = (await call<MessagePage>('GET', url, alice.token)).json;
+    seen.push(...page.messages.map((m) => m.body));
+    assert.equal(page.hasMore, page.nextCursor !== null);
+    cursor = page.nextCursor;
+    if (!cursor) break;
+  }
+  assert.deepEqual(seen.sort(), [0, 1, 2, 3, 4, 5, 6].map((i) => `tie ${i}`));
+  assert.equal((await call('GET', `/api/channels/${ch}/messages?cursor=bogus`, alice.token)).status, 400);
+});
+
 test("a reply racing its parent's delete leaves a consistent thread", async () => {
   for (let round = 0; round < 5; round++) {
     const parent = (await call<Message>('POST', `/api/channels/${projId}/messages`, alice.token, { body: `parent ${round}` })).json;

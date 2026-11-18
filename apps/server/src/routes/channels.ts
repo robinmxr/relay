@@ -4,7 +4,7 @@ import { LIMITS, type UserWithPresence } from '@relay/shared';
 import type { Ctx } from '../context';
 import { HttpError, parse } from '../errors';
 import { saveMentions } from '../mentions';
-import { channelMemberIds, getMessage, listMessages, requireChannel } from '../queries';
+import { channelMemberIds, decodeCursor, getMessage, listMessages, requireChannel } from '../queries';
 import { toUser, USER_COLUMNS, type UserRow } from '../users';
 import { idParams, me, rateKey, uuid } from './util';
 
@@ -154,13 +154,15 @@ export function channelRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { id } = parse(idParams, req.params);
     const q = parse(
       z.object({
-        before: z.string().datetime().optional(),
+        cursor: z.string().max(200).optional(),
         limit: z.coerce.number().int().min(1).max(100).default(LIMITS.pageSize),
       }),
       req.query,
     );
+    const cursor = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cursor) throw new HttpError(400, 'Invalid cursor');
     await requireChannel(db, id, user.id);
-    return listMessages(db, files, id, q.before ?? null, q.limit);
+    return listMessages(db, files, id, cursor, q.limit);
   });
 
   app.post(
