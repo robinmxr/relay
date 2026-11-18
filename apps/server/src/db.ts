@@ -82,16 +82,22 @@ export async function openDb(databaseUrl?: string, dataDir?: string): Promise<Db
   };
 }
 
-/** Applies each file in ./migrations once, in name order, inside a transaction. */
+/**
+ * Applies each file in ./migrations once, in name order, each in its own transaction. An advisory
+ * lock makes processes that start together take turns, so a migration never runs twice.
+ */
 export async function migrate(db: Db): Promise<void> {
-  await db.exec('create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())');
   const dir = new URL('./migrations/', import.meta.url);
   const names = (await readdir(dir)).filter((n) => /^\d+_[\w-]+\.sql$/.test(n)).sort();
-  const done = new Set((await db.query<{ name: string }>('select name from schema_migrations')).map((r) => r.name));
   for (const name of names) {
-    if (done.has(name)) continue;
     const sql = await readFile(new URL(name, dir), 'utf8');
-    await db.exec(`begin;\n${sql}\ninsert into schema_migrations (name) values ('${name}');\ncommit;`);
+    await db.tx(async (q) => {
+      await q.query('select pg_advisory_xact_lock(7243001)');
+      await q.exec('create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())');
+      if ((await q.query('select 1 from schema_migrations where name = $1', [name])).length) return;
+      await q.exec(sql);
+      await q.query('insert into schema_migrations (name) values ($1)', [name]);
+    });
   }
 }
 
