@@ -14,7 +14,10 @@ let filesDir: string;
 
 before(async () => {
   filesDir = await mkdtemp(path.join(tmpdir(), 'relay-test-'));
-  ctx = await buildApp({ devSignin: true, filesDir, limits: { signinPerMinute: 1000, signinPerAccountPer15Minutes: 1000 } });
+  // TEST_DATABASE_URL runs the suite against Postgres (an empty database); otherwise in-memory PGlite.
+  ctx = await buildApp({ devSignin: true, filesDir, databaseUrl: process.env.TEST_DATABASE_URL, limits: { signinPerMinute: 1000, signinPerAccountPer15Minutes: 1000 } });
+  await ctx.app.listen({ port: 0, host: '127.0.0.1' });
+  host = `127.0.0.1:${(ctx.app.server.address() as AddressInfo).port}`;
 });
 
 after(async () => {

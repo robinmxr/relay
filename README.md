@@ -64,9 +64,15 @@ On start the server prints the address to share with people on your network, and
 ### Checks
 
 ```sh
-npm test             # server integration tests (20) and desktop unit tests (15)
+npm test             # server integration tests (26) and desktop unit tests (16), on embedded PGlite
 npm run typecheck    # all workspaces
+
+# The server suite again on real Postgres and Redis (npm run db:up gives you both; use an empty database).
+# This also runs the multi-process tests: two servers on one Redis.
+TEST_DATABASE_URL=postgres://relay:relay@localhost:5432/relay_test TEST_REDIS_URL=redis://localhost:6379 npm test -w @relay/server
 ```
+
+CI (`.github/workflows/ci.yml`) runs both on every push and pull request.
 
 ## Features and how they work
 
