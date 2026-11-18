@@ -5,11 +5,9 @@ alter table users add column if not exists recovery_hash text;
 -- Set for pre-password accounts given the default starting password: they must pick their own at first sign-in.
 alter table users add column if not exists must_change boolean not null default false;
 
--- Accounts that predate passwords get "password" as a starting point so nobody is locked out.
--- The sign-in screen makes each of them set a real one immediately after.
-update users
-set password_hash = 'scrypt$16384$8$1$OM7G86nstb66yVhz1Vw2lA==$+EcQAzO8iQSA9Bxu5E/NEkX3P6oP/HrVzz32K9Va3Aw=', must_change = true
-where password_hash is null;
+-- Accounts that predate passwords keep a null password_hash: the workspace owner resets them, or
+-- (in development) they sign in with an email alone. 007 undoes an earlier version of this file
+-- that gave them a shared default password.
 
 -- Opaque id for the sessions API, so the token hash never leaves the server.
 alter table sessions add column if not exists id uuid default gen_random_uuid();
