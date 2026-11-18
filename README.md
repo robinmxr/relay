@@ -35,7 +35,7 @@ npm run dev          # server on :4000, web client on http://localhost:5173
 npm run desktop      # in a second terminal: the desktop app
 ```
 
-Sign in with an email and password; accounts come with a one-time recovery code (there is no email server, so that code is the password-reset path). Accounts created before passwords existed start with the password `password` and are made to pick their own at first sign-in. The security tab in settings lists your active sessions — each with its last-seen time and user agent — and lets you revoke one, or all others at once. Everyone lands in the "Relay HQ" workspace, whose invite code is `relay-hq`.
+Sign in with an email and password; accounts come with a one-time recovery code (there is no email server, so that code is the password-reset path). Accounts from databases created before password sign-in existed have no password until the workspace owner resets it. The security tab in settings lists your active sessions — each with its last-seen time and user agent — and lets you revoke one, or all others at once. Everyone lands in the "Relay HQ" workspace, whose invite code is `relay-hq`.
 
 **Single port (production style):** `npm run build && npm start` serves the built client and the API together on http://localhost:4000.
 
@@ -49,7 +49,7 @@ HOST=0.0.0.0
 RELAY_TLS_CERT=.data/tls/cert.pem
 RELAY_TLS_KEY=.data/tls/key.pem
 RELAY_HTTPS_PORT=4443
-RELAY_WEB_URL=https://192.168.21.155:4443   # the fixed LAN address, and where the desktop app loads from
+RELAY_WEB_URL=https://192.168.1.50:4443     # this machine's fixed LAN address, and where the desktop app loads from
 ```
 
 On start the server prints the address to share with people on your network, and the certificate's SHA-256 fingerprint. The HTTPS listener is what makes huddles work off `localhost`; the fingerprint is what the desktop app compares against when it asks to trust the server's self-signed certificate. `README` for [`relay-chat`](packages/relay-chat/README.md) covers the trust prompt from the user's side.
