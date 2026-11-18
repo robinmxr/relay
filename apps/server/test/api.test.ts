@@ -14,7 +14,7 @@ let filesDir: string;
 
 before(async () => {
   filesDir = await mkdtemp(path.join(tmpdir(), 'relay-test-'));
-  ctx = await buildApp({ devSignin: true, filesDir, limits: { signinPerMinute: 1000 } });
+  ctx = await buildApp({ devSignin: true, filesDir, limits: { signinPerMinute: 1000, signinPerAccountPer15Minutes: 1000 } });
 });
 
 after(async () => {
@@ -688,4 +688,28 @@ test('concurrent edit and delete never leave mentions on a deleted message', asy
   assert.ok([200, 404].includes(edit.status), `edit returned ${edit.status}`);
   const left = await ctx.ctx.db.query('select 1 from message_mentions where message_id = $1', [m.id]);
   assert.equal(left.length, 0);
+});
+
+test('sign-in is rate limited per account across IPs', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'relay-rla-'));
+  const limited = await buildApp({ devSignin: true, filesDir: dir, limits: { signinPerMinute: 1000, signinPerAccountPer15Minutes: 2 } });
+  try {
+    const statuses = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await limited.app.inject({
+        method: 'POST',
+        url: '/api/auth/signin',
+        remoteAddress: `10.0.0.${i + 1}`,
+        payload: { email: 'Target@example.com', password: 'guess' },
+      });
+      statuses.push(res.statusCode);
+    }
+    assert.deepEqual(statuses, [401, 401, 429]);
+    // Someone else's account is unaffected.
+    const other = await limited.app.inject({ method: 'POST', url: '/api/auth/signin', payload: { email: 'other@example.com' } });
+    assert.equal(other.statusCode, 200);
+  } finally {
+    await limited.app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
 });

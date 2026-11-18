@@ -8,6 +8,8 @@ import type { Presence } from './presence';
 export interface Limits {
   /** Per IP. */
   signinPerMinute: number;
+  /** Per account (email), across sign-in and recovery, so spreading over many IPs does not help. */
+  signinPerAccountPer15Minutes: number;
   /** Per user, per channel post endpoint. */
   messagesPer10Seconds: number;
   uploadsPerMinute: number;
@@ -19,6 +21,7 @@ export interface Limits {
 
 export const DEFAULT_LIMITS: Limits = {
   signinPerMinute: 10,
+  signinPerAccountPer15Minutes: 20,
   messagesPer10Seconds: 30,
   uploadsPerMinute: 30,
   requestsPerMinute: 1200,

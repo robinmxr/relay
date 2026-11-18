@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { SignInResponse } from '@relay/shared';
 import { bearer, createSession, hashToken } from '../auth';
@@ -35,6 +35,18 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
     config: { rateLimit: { max: ctx.limits.signinPerMinute, timeWindow: '1 minute', keyGenerator: (req: { ip: string }) => req.ip } },
   };
 
+  // A second limiter, keyed by the account, checked once the body is parsed. It uses the same store
+  // as the per-IP one (Redis when configured), so the count holds across server processes.
+  const accountLimiter = app.createRateLimit({
+    max: ctx.limits.signinPerAccountPer15Minutes,
+    timeWindow: '15 minutes',
+    keyGenerator: (req) => `account:${(req.body as { email?: string }).email}`,
+  });
+  const throttleAccount = async (req: FastifyRequest) => {
+    const r = await accountLimiter(req);
+    if (!r.isAllowed && r.isExceeded) throw new HttpError(429, 'Too many attempts for this account, try again later');
+  };
+
   app.get('/api/health', async () => ({ ok: true }));
 
   /**
@@ -44,6 +56,8 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
    */
   app.post('/api/auth/signin', signinLimit, async (req): Promise<SignInResponse> => {
     const body = parse(signInBody, req.body);
+    req.body = body;
+    await throttleAccount(req);
     const rows = await db.query<{ id: string; email: string; name: string; password_hash: string | null }>(
       'select id, email, name, password_hash from users where email = $1',
       [body.email],
@@ -105,6 +119,8 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx): void {
   /** The no-email recovery path: email + recovery code + new password. */
   app.post('/api/auth/recover', signinLimit, async (req): Promise<SignInResponse> => {
     const body = parse(recoverBody, req.body);
+    req.body = body;
+    await throttleAccount(req);
     const rows = await db.query<{ id: string; email: string; name: string; recovery_hash: string | null }>(
       'select id, email, name, recovery_hash from users where email = $1',
       [body.email],
