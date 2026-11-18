@@ -44,7 +44,32 @@ export async function redisPresence(url: string, nodeId: string): Promise<Presen
   const redis = new Redis(url);
   const local = new Map<string, number>();
   const key = (userId: string) => `relay:presence:${userId}`;
-  const live = (userId: string) => redis.zcount(key(userId), Date.now(), '+inf');
+
+  // Each transition changes the set and reads the global state in one atomic step, so a connect
+  // on one process and a disconnect on another cannot both see the other's "before" state.
+  redis.defineCommand('presenceConnect', {
+    numberOfKeys: 1,
+    // ARGV: now, expiry, nodeId, ttl. Returns 1 when the user went from offline to online.
+    lua: `
+      redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', '(' .. ARGV[1])
+      local others = redis.call('ZCOUNT', KEYS[1], ARGV[1], '+inf')
+      if redis.call('ZSCORE', KEYS[1], ARGV[3]) then others = others - 1 end
+      redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3])
+      redis.call('PEXPIRE', KEYS[1], ARGV[4])
+      if others == 0 then return 1 else return 0 end`,
+  });
+  redis.defineCommand('presenceDisconnect', {
+    numberOfKeys: 1,
+    // ARGV: now, nodeId. Returns 1 when no live process holds the user any more.
+    lua: `
+      redis.call('ZREM', KEYS[1], ARGV[2])
+      if redis.call('ZCOUNT', KEYS[1], ARGV[1], '+inf') == 0 then return 1 else return 0 end`,
+  });
+  type Scripts = {
+    presenceConnect(key: string, now: number, expiry: number, nodeId: string, ttl: number): Promise<number>;
+    presenceDisconnect(key: string, now: number, nodeId: string): Promise<number>;
+  };
+  const scripts = redis as unknown as Scripts;
 
   const refresh = setInterval(() => {
     if (local.size === 0) return;
@@ -60,9 +85,8 @@ export async function redisPresence(url: string, nodeId: string): Promise<Presen
       const n = local.get(userId) ?? 0;
       local.set(userId, n + 1);
       if (n > 0) return false;
-      const before = await live(userId);
-      await redis.multi().zadd(key(userId), Date.now() + TTL_MS, nodeId).pexpire(key(userId), TTL_MS).exec();
-      return before === 0;
+      const now = Date.now();
+      return (await scripts.presenceConnect(key(userId), now, now + TTL_MS, nodeId, TTL_MS)) === 1;
     },
     disconnect: async (userId) => {
       const n = local.get(userId) ?? 0;
@@ -71,8 +95,7 @@ export async function redisPresence(url: string, nodeId: string): Promise<Presen
         return false;
       }
       local.delete(userId);
-      await redis.zrem(key(userId), nodeId);
-      return (await live(userId)) === 0;
+      return (await scripts.presenceDisconnect(key(userId), Date.now(), nodeId)) === 1;
     },
     online: async (userIds) => {
       if (userIds.length === 0) return new Set();

@@ -87,6 +87,8 @@ export interface Message {
 export interface MessagePage {
   messages: Message[];
   hasMore: boolean;
+  /** Pass as `cursor` to fetch the page before this one. Null when there is none. */
+  nextCursor: string | null;
 }
 
 export interface SignInResponse {

@@ -4,7 +4,7 @@ import { LIMITS, type UserWithPresence } from '@relay/shared';
 import type { Ctx } from '../context';
 import { HttpError, parse } from '../errors';
 import { saveMentions } from '../mentions';
-import { channelMemberIds, getMessage, listMessages, requireChannel } from '../queries';
+import { channelMemberIds, decodeCursor, getMessage, listMessages, requireChannel } from '../queries';
 import { toUser, USER_COLUMNS, type UserRow } from '../users';
 import { idParams, me, rateKey, uuid } from './util';
 
@@ -154,13 +154,15 @@ export function channelRoutes(app: FastifyInstance, ctx: Ctx): void {
     const { id } = parse(idParams, req.params);
     const q = parse(
       z.object({
-        before: z.string().datetime().optional(),
+        cursor: z.string().max(200).optional(),
         limit: z.coerce.number().int().min(1).max(100).default(LIMITS.pageSize),
       }),
       req.query,
     );
+    const cursor = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cursor) throw new HttpError(400, 'Invalid cursor');
     await requireChannel(db, id, user.id);
-    return listMessages(db, files, id, q.before ?? null, q.limit);
+    return listMessages(db, files, id, cursor, q.limit);
   });
 
   app.post(
@@ -173,38 +175,38 @@ export function channelRoutes(app: FastifyInstance, ctx: Ctx): void {
       const access = await requireChannel(db, id, user.id, { member: true });
       writable(access);
 
-      if (body.parentId) {
-        const parent = await db.query<{ channel_id: string; parent_id: string | null; deleted_at: Date | null }>(
-          'select channel_id, parent_id, deleted_at from messages where id = $1',
-          [body.parentId],
-        );
-        const p = parent[0];
-        if (!p || p.channel_id !== id || p.parent_id || p.deleted_at) throw new HttpError(400, 'Invalid thread');
-      }
-
       const fileIds = [...new Set(body.fileIds)];
-      if (fileIds.length) {
-        const owned = await db.query<{ n: number }>(
-          `select count(*)::int as n from files
-           where id in (select (jsonb_array_elements_text($1::jsonb))::uuid)
-             and uploader_id = $2 and channel_id = $3 and message_id is null`,
-          [JSON.stringify(fileIds), user.id, id],
-        );
-        if (owned[0].n !== fileIds.length) throw new HttpError(400, 'Unknown or already attached file');
-      }
+      const messageId = await db.tx(async (q) => {
+        if (body.parentId) {
+          // Lock the parent so a concurrent delete cannot remove it under the new reply.
+          const parent = await q.query<{ channel_id: string; parent_id: string | null; deleted_at: Date | null }>(
+            'select channel_id, parent_id, deleted_at from messages where id = $1 for update',
+            [body.parentId],
+          );
+          const p = parent[0];
+          if (!p || p.channel_id !== id || p.parent_id || p.deleted_at) throw new HttpError(400, 'Invalid thread');
+        }
 
-      const rows = await db.query<{ id: string }>(
-        'insert into messages (channel_id, user_id, parent_id, body) values ($1, $2, $3, $4) returning id',
-        [id, user.id, body.parentId ?? null, body.body],
-      );
-      const messageId = rows[0].id;
-      if (fileIds.length) {
-        await db.query('update files set message_id = $1 where id in (select (jsonb_array_elements_text($2::jsonb))::uuid)', [
-          messageId,
-          JSON.stringify(fileIds),
-        ]);
-      }
-      await saveMentions(db, messageId, access.workspace_id, body.body);
+        const rows = await q.query<{ id: string }>(
+          'insert into messages (channel_id, user_id, parent_id, body) values ($1, $2, $3, $4) returning id',
+          [id, user.id, body.parentId ?? null, body.body],
+        );
+        const created = rows[0].id;
+        if (fileIds.length) {
+          // Check and claim in one statement: a file already claimed by a concurrent post is not
+          // matched, so the count comes up short and this post rolls back.
+          const claimed = await q.query(
+            `update files set message_id = $1
+             where id in (select (jsonb_array_elements_text($2::jsonb))::uuid)
+               and uploader_id = $3 and channel_id = $4 and message_id is null
+             returning id`,
+            [created, JSON.stringify(fileIds), user.id, id],
+          );
+          if (claimed.length !== fileIds.length) throw new HttpError(400, 'Unknown or already attached file');
+        }
+        await saveMentions(q, created, access.workspace_id, body.body);
+        return created;
+      });
 
       const message = (await getMessage(db, files, messageId))!;
       await hub.toChannel(db, id, { type: 'message.created', message });

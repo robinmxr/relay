@@ -5,7 +5,7 @@ Time-boxed experiments to run **before** committing to the phase that depends on
 | Spike | Blocks | Timebox | Riskiest unknown |
 |---|---|---|---|
 | S1 GitHub two-way comment sync | Phase 2 | 3 days | Attribution and loop safety |
-| S2 Slack bridge and import | Phase 3 | 2 days | Whether Slack’s terms and rate limits allow it at all |
+| S2 Slack import and one-way notifications | Phase 2 (notifications) and Phase 3 (import) | 1 day | Import fidelity; whether notifications read as signal or noise |
 | S3 CI log excerpts | Phase 2 | 1 day | Log access and size |
 | S4 Multi-tenant foundation | Phase 1 | 3 days | RLS + PGlite parity, Redis fan-out |
 | S5 Web Push | Phase 3 | 1 day | iOS behaviour |
@@ -28,18 +28,21 @@ Try:
 
 **Done when:** a 2-page note covers attribution, the dedupe scheme, edit/delete semantics, rate-limit headroom, and the webhook-replay/reconciliation strategy.
 
-## S2 · Slack bridge and import
+## S2 · Slack import and one-way notifications
 
-**Question:** is a two-way bridge allowed and practical for a non-Marketplace app?
+**Question:** can we import a workspace’s history from the admin export, and post notifications into Slack that engineers read rather than mute?
+
+A two-way bridge is out of scope (open decision D8). This spike verifies the cheap half — history and awareness — not sync.
 
 Try:
 
-1. **Read Slack’s current API Terms and rate-limit policy first.** Our understanding is that Slack tightened `conversations.history`/`conversations.replies` limits for commercially distributed non-Marketplace apps in 2025, and restricts some uses of message data. If true, history import via the API and polling-based sync are impractical without Marketplace approval. Confirm what applies to a new app today.
-2. Bridge with the Events API (push), not polling: post into Slack with `chat.postMessage`, using a custom username/icon per author if allowed.
-3. Import from Slack’s **workspace export** (admin-triggered ZIP) instead of the API. This avoids history rate limits.
-4. Threads, reactions and edits in both directions. Plan loop protection the same way as S1.
+1. **Confirm the notification path is allowed and stable.** Incoming webhooks are ordinary, documented and available on paid Slack plans. Confirm what a partner’s plan supports before promising a channel. No Events API, no `chat.postMessage`, no polling, no Marketplace review.
+2. **Import a real export** from a willing partner (admin-triggered ZIP): channels, users, message order, edits and deletes, threads, and attachments as links. Measure what survives.
+3. **Make re-import idempotent** and safe to run twice. Kill it mid-import and check the recovery.
+4. **Shape the notification:** one line per event with a link back into Relay, for PR thread created, review requested, failing check and mention. Ask a partner which of the four they would mute first; five a day should be signal, fifty is noise.
+5. **Write down what a bridge would add** that this does not, so the D8 revisit trigger rests on a real gap rather than a feeling.
 
-**Done when:** we know whether the bridge is (a) fine, (b) fine only after Marketplace approval, with a timeline, or (c) not allowed. Option (c) changes Phase 3 and kill criterion 2. Feeds decision D8.
+**Done when:** a partner’s export imports with channel history intact and re-runs without duplicates, and the four notification types land in a Slack channel with working links. One page, plus the gap list for a future bridge.
 
 ## S3 · CI log excerpts
 

@@ -2,16 +2,24 @@
 
 **Product, architecture and phased delivery plan**
 
-Status: Draft v2 · October 2026
+Status: Draft v2.1 · October 2026
 Decision: **centralized, multi-tenant SaaS** · no self-hosting
 Starting point: the existing Relay monorepo (`apps/server`, `apps/web`, `apps/desktop`, `packages/shared`)
 
+### Changes in v2.1
+
+- **Slack bridge demoted.** Coexistence is now read-only history import plus one-way notifications into Slack. A two-way message bridge is deferred until a design partner is blocked without it (open decision D8), so the plan no longer depends on the least certain integration in it.
+- **Bets are staged, not binary.** Phase gates are green/amber/red bands read on a fixed cadence, and every review ends in one of four outcomes: continue, continue narrower, change the wedge, or pause. The default is narrower. Sync correctness and tenant isolation stay absolute.
+- **Phase 3 is a base slice plus unlocks.** Code blocks, import, notifications, push and permalinks ship first; stack traces, drafts, pins, notification rules, search filters, slash commands and CLI wait until a named partner is blocked by their absence.
+- **Dates removed.** The plan commits to sequence and review points, not a week count to the headline milestone.
+- **Email deliverability added to Phase 1.** Magic links only work on a verified sending domain, and that is now explicit scope.
+
 ### Changes in v2
 
-- **Scope cut by about a third.** v1 summed to 42–62 engineer-weeks; v2 is 30–44 weeks plus a separate, demand-driven enterprise track.
-- **Sequencing:** a thin GitHub slice now comes straight after the foundation (Phase 2), so the headline milestone lands in about 10 weeks instead of 14–20.
+- **Scope cut by about a third.** v1 summed to 42–62 engineer-weeks; v2 is 30–44 weeks plus a separate, demand-driven enterprise track. (v2.1 trims it to 28–41 after dropping the bridge.)
+- **Sequencing:** a thin GitHub slice now comes straight after the foundation (Phase 2), so the headline milestone lands early instead of after chat parity. (v2.1 replaces the week estimates with sequence and review points.)
 - **Cut or deferred:** the GitOps workflow engine, LiveKit huddles, async standups, thread tasks, incident roles and postmortem export, deploy locks and approvals, repo code indexing, snippet variables, JetBrains extension, Google OAuth and passwords at launch, Stripe before GA, and 10k-socket load tests.
-- **Added:** two-way PR comment sync, a Slack bridge, inline CI failure context, stack trace → repo/IDE links, ownership-aware notification routing, earlier push notifications, agents as channel members, and kill criteria.
+- **Added:** two-way PR comment sync, a Slack bridge (deferred in v2.1), inline CI failure context, stack trace → repo/IDE links, ownership-aware notification routing, earlier push notifications, agents as channel members, and kill criteria (now review triggers).
 
 ---
 
@@ -143,7 +151,7 @@ Catch-up, thread summaries, decision/action extraction, “ask the workspace,”
 
 1. GitHub PR threads with two-way comment sync, inline CI failure context and a review inbox
 2. Code-native messages, stack trace links and IDE deep links
-3. Coexistence with Slack: a channel bridge, plus Slack import
+3. Coexistence without a migration: read-only Slack import for history, plus one-way Relay → Slack notifications so engineers are never out of the loop
 4. Service catalog with ownership-aware routing
 5. Lightweight incident rooms and a read-only deploy board
 6. API tokens, webhooks, the GitHub Action, CLI and MCP (agents as channel members)
@@ -153,6 +161,7 @@ Billing, SSO and audit logs follow demand: entitlements exist from Phase 1, Stri
 
 ### Later
 
+- A two-way Slack bridge (message mirroring in both directions), once a design partner is blocked without it
 - GitLab, Bitbucket and Linear integrations
 - VS Code extension
 - Repo-versioned workflow engine (`.relay/workflows.yml`)
@@ -207,11 +216,11 @@ Browser / Electron / CLI / MCP / agents
    │            │             │              │
 Postgres      Redis          S3          Worker pool
 (primary +   (pub/sub,     (files,      (GitHub sync,
- replica)     presence,     avatars,     Slack bridge,
+ replica)     presence,     avatars,     Slack import,
               rate limits,   exports)     webhooks, email,
               queues)                     push, AI jobs)
                 │
-   GitHub App · Slack API · email provider · Web Push · Sentry/OpenTelemetry · AI provider · Stripe (GA)
+   GitHub App · Slack (incoming webhooks, export import) · email provider · Web Push · Sentry/OpenTelemetry · AI provider · Stripe (GA)
 ```
 
 **Rules:**
@@ -219,7 +228,7 @@ Postgres      Redis          S3          Worker pool
 - App instances are stateless. No in-memory presence or rate-limit counters in production.
 - All long-running work goes to workers with idempotency keys and retries.
 - WebSocket fan-out goes through Redis; each instance only holds its own sockets.
-- Sync jobs (GitHub comments, Slack bridge) are idempotent and loop-safe: every mirrored item records its origin so it is never echoed back.
+- Sync jobs (GitHub comments) are idempotent and loop-safe: every mirrored item records its origin so it is never echoed back. Slack is one-way by design, so there is no loop to break.
 - Huddles keep the current mesh as a small-team beta. No SFU work is planned.
 
 ### 6.3 Tenancy
@@ -268,7 +277,7 @@ Proposed packaging (validate with design partners):
 | Plan | Price | Limits |
 |---|---|---|
 | Free | $0 | 10 seats, 90-day history, 1 integration, 5 GB files |
-| Team | $10/user/month | Unlimited history, 10 integrations, 100 GB, review inbox, CLI/MCP, Slack bridge |
+| Team | $10/user/month | Unlimited history, 10 integrations, 100 GB, review inbox, CLI/MCP, Slack import and notifications |
 | Business | $18/user/month | SSO, audit log, retention controls, priority support |
 | AI add-on | $5/user/month or usage-based | Catch-up, summaries, ask, BYO key |
 
@@ -304,7 +313,7 @@ Redis pub/sub fans out envelopes. WebSocket connections authenticate with a shor
 - OWASP ASVS baseline, WAF, per-tenant rate limits
 - Secrets in a managed vault; no secrets in the repo
 - Dependency and container scanning in CI
-- Webhook signature verification (GitHub, Slack, Stripe)
+- Webhook signature verification (GitHub, Stripe)
 - API tokens hashed at rest, scoped and revocable; agent tokens limited to named channels
 - Audit log for admin, auth, integration, token, agent and billing events
 - GDPR export/delete, DPA, subprocessor list
@@ -335,8 +344,7 @@ Keep the current tables and add:
 | `incidents` | title, severity, status, service, channel, external link, started/resolved |
 | `incident_events` | incident, actor, kind, body, message ref, created at |
 | `deploys` | service, environment, version, commit, actor, status, timings |
-| `bridges` | workspace, Relay channel, Slack workspace + channel, direction, status |
-| `bridge_links` | Relay message ↔ Slack message ts, origin |
+| `slack_imports` | workspace, source channel, Relay channel, counts, status, imported at |
 | `push_subscriptions` | user, endpoint, keys, device, created at |
 | `notifications` | user, workspace, kind, source, routed-by (owner/mention/rule), read at, digest batch |
 | `saved_items` | user, message, note, created at |
@@ -347,6 +355,8 @@ Keep the current tables and add:
 Extend `messages` with `metadata jsonb` (unfurls, cards, CI excerpts, stack-trace resolutions) and `kind` (`text`, `deploy`, `incident`, `decision`, `agent`, `system`). Decisions are messages with `kind = decision` and a status in metadata, found through a search filter, so there is no separate decisions table. Keep the plain-text body for search and notifications.
 
 Extend `channels` with `kind` (`standard`, `repo`, `incident`, `deploy`, `service`) and optional `service_id`/`repo_link_id`.
+
+One-way Slack notifications need no table of their own: they are an `integrations` row with provider `slack_webhook`, scoped to a channel. A two-way bridge would add `bridges` and `bridge_links`; it is not part of the pre-GA data model.
 
 ---
 
@@ -362,13 +372,13 @@ Extend `channels` with `kind` (`standard`, `repo`, `incident`, `deploy`, `servic
 - `/api/services/*` — CRUD, owners, on-call, health
 - `/api/incidents/*` — open, update, timeline, resolve
 - `/api/deploys/*` — list, ingest from CI, release notes
-- `/api/bridges/*` — Slack bridge setup, status, pause
+- `/api/slack/*` — history import, notification targets, status
 - `/api/agents/*` — register, scope, list runs, revoke
 - `/api/push/*` — subscribe, unsubscribe
 - `/api/tokens/*` — create, list, revoke
 - `/api/cli/*` — token-authenticated CLI endpoints
 - `/api/ai/*` — catch-up, summarize, ask, jobs
-- `/webhooks/github`, `/webhooks/slack`, `/webhooks/stripe` (GA)
+- `/webhooks/github`, `/webhooks/stripe` (GA). Relay posts into Slack through incoming webhooks; nothing calls back from Slack.
 
 ### WebSocket events
 
@@ -387,7 +397,7 @@ Add the event types listed in §6.7. Keep client → server events small and typ
 
 ## 9. Delivery plan
 
-Estimates assume one experienced full-stack engineer; multiply for a team. Total: **30–44 weeks** for Phases 0–7, plus the enterprise track only when a buyer requires it. The sequence is wedge-first: foundation → GitHub wedge → only the chat parity partners ask for → ops → developer surfaces → AI → GA.
+Estimates assume one experienced full-stack engineer who also carries the pager; multiply for a team, and add 2–3 weeks to any phase that needs ops work without dedicated help. The ranges are planning aids reviewed at each gate, not commitments. Total: **28–41 weeks** for Phases 0–7, plus the enterprise track only when a buyer requires it. The sequence is wedge-first: foundation → GitHub wedge → only the chat parity partners ask for → ops → developer surfaces → AI → GA.
 
 ### Phase 0 — Design validation (now, 1 week)
 
@@ -407,7 +417,7 @@ Exit criteria:
 
 - At least 3 design partners say they would pilot the review inbox + PR threads
 - The first release scope is agreed and written down
-- We know which two integrations are non-negotiable (likely GitHub + Slack bridge/import)
+- We know which two integrations are non-negotiable (likely GitHub + Slack import/notifications)
 
 ---
 
@@ -417,7 +427,7 @@ Exit criteria:
 
 Scope:
 
-- Managed Postgres, Redis, S3, email provider
+- Managed Postgres, Redis, S3, and email sending on a verified domain (SPF/DKIM). Magic links are only as good as deliverability, and it is a week of work that is easy to forget.
 - Workspace/tenant model, roles (`owner`, `admin`, `member`, `guest`), invites
 - Auth: GitHub OAuth, magic link; session/device list and revoke
 - Entitlements service and plan schema (plans assigned manually; no Stripe yet)
@@ -448,6 +458,7 @@ Scope:
 - PR unfurls and an auto-thread per PR in the mapped channel: checks, review state, files changed, labels; updates on push, review, merge, close
 - **Two-way PR comment sync:** Relay thread replies post to GitHub; GitHub review comments appear in the thread; loop-safe and idempotent
 - **Inline CI failure context:** failing step, log excerpt with a line link, “who broke main” on the default branch, flaky-test hint for checks that flip on re-run
+- **One-way notifications into Slack** through incoming webhooks for the four moments that need a human: a PR thread is created, a review is requested, a check fails on the default branch, or a mention lands. One line, one link back. Without this the pilot is a second window with no pings, which is the worst version of it.
 - Review inbox: requested, authored, failing CI, stale, mentions
 - Markdown and fenced code with syntax highlighting (the minimum for PR discussion to read well)
 
@@ -458,40 +469,47 @@ Acceptance:
 - A reply in Relay appears on the GitHub PR within 10 seconds, and the reverse also holds, with no duplicates
 - A failed check shows the failing step and log excerpt in the thread without opening GitHub
 - A requested review appears in the inbox within 10 seconds of the webhook
+- A PR thread, review request, failing check on the default branch or mention posts one line into the chosen Slack channel within 10 seconds, with a working link back
 
 ---
 
-### Phase 3 — Chat essentials and Slack coexistence (5–7 weeks)
+### Phase 3 — Chat essentials and Slack coexistence (4–6 weeks, base slice first)
 
-**Goal:** remove the reasons a dev team would reject Relay, and let them trial it **without leaving Slack**. Build only the parity items design partners actually raise; everything else waits.
+**Goal:** remove the reasons a dev team would reject Relay, and let them trial it **alongside Slack** rather than instead of it. Build only the parity items design partners actually raise; everything else waits.
 
 Scope:
 
-- Code-native messages: diffs, ANSI/log blocks, copy code, collapse long blocks, `path:line` → IDE deep link (web + Electron)
-- **Stack trace resolution:** frames link to the repo file and line at the right commit, on GitHub or in the IDE
-- Message permalinks, copy link, jump to message and highlight (search included)
-- Activity inbox: mentions, replies, review requests, unread
+**Base slice.** These ship first, because everything after them is optional:
+
+- **Slack import, read-only**, from the admin workspace export: public channels, users and message history (DMs and files later). No API polling, no two-way sync, no reconciliation job.
+- Code-native messages: fenced code with syntax highlighting, copy, collapse, and `path:line` → IDE deep link (web + Electron)
+- **Web Push (PWA)** for mentions, review requests and, later, incidents
+- Message permalinks, copy link, jump to message and highlight
+- API tokens and incoming webhooks, because the GitHub Action, deploy ingestion and CLI all depend on them
+
+**Then unlock one item at a time, each when a named design partner is blocked by its absence.** Not before:
+
+- Stack trace resolution: frames link to the repo file and line at the right commit, on GitHub or in the IDE
+- Activity inbox beyond the review inbox: mentions, replies, unread
 - Drafts, pins, saved-for-later
 - Notification rules: per-channel, keywords, DND, timezone
-- **Web Push (PWA)** for mentions, review requests and, later, incidents
 - Search filters: `in:`, `from:`, `has:file`, `has:code`, `is:thread`, `before:`, `after:`
-- API tokens, incoming webhooks, slash-command framework
-- CLI v0: `relay login`, `relay send`, `relay search`
-- **Slack bridge:** two-way mirror of selected channels, with author attribution and loop protection; PR thread summaries can post back to a Slack channel
-- Slack import: public channels, users, messages (DMs later)
+- Slash-command framework
 - Message → GitHub issue with two-way status
 
-Deferred until partners ask: custom workspace emoji, user groups, reminders, scheduled send, digest notification rules.
+Deferred until partners ask: custom workspace emoji, user groups, reminders, scheduled send, digest notification rules. The CLI moved to Phase 5, where its natural users already are.
 
-Acceptance:
+Must:
 
-- A code block can be copied and opened in VS Code from both web and desktop
-- A pasted stack trace links each in-repo frame to the right file and line
-- A message has a stable permalink and search lands on it
-- A CI job can post a deploy message with a workspace token
-- A bridged channel stays in sync with Slack for a week of pilot use with no duplicates or drops
-- A Slack workspace can be imported with channel history intact
+- A Slack workspace can be imported with channel history intact, read-only
 - A mention reaches a user’s phone via push when they have no Relay tab open
+
+Should:
+
+- A code block can be copied and opened in VS Code from web and desktop
+- A message has a stable permalink and search lands on it
+- A CI job can post a message with a workspace token
+- A pasted stack trace links each in-repo frame to the right file and line
 
 ---
 
@@ -504,7 +522,7 @@ Scope:
 - Service catalog: owners, repo, on-call (from PagerDuty), dashboard, runbook, health, recent deploys
 - CODEOWNERS sync; `/service <name>`; “who owns this?”
 - **Ownership-aware routing:** PR, check-failure and incident notifications go to owners from CODEOWNERS and the service catalog, not the whole channel
-- Incident rooms: `/incident` creates a channel with severity, service, runbook, PagerDuty/Sentry link and a timeline built from flagged messages; push to owners and on-call
+- Incident rooms: `/incident` creates a channel with severity, service, runbook, PagerDuty/Sentry link and a timeline built from flagged messages; push to owners and on-call, plus one line into Slack
 - Deploy board (read-only): environments and deploy events ingested from CI and the GitHub Action
 - Release notes generated from merged PRs and deploy events
 - Decisions: mark a message as a decision (`kind = decision`), with a `is:decision` search filter
@@ -512,7 +530,7 @@ Scope:
 
 Acceptance:
 
-- `/incident` creates a room with service, runbook and timeline in one action, and notifies owners by push
+- `/incident` creates a room with service, runbook and timeline in one action, and notifies owners by push and one line into Slack
 - A deploy from CI posts a deploy card and updates the environment board
 - `/service payments-api` resolves owners, on-call, repo and recent deploys
 - A failing check on `payments-api` notifies its owners, not everyone in the channel
@@ -527,7 +545,7 @@ Acceptance:
 
 Scope:
 
-- CLI v1: `relay send`, `search`, `ask`, `incident`, `deploy`, `tail`, `pr`, `review`, `login`
+- CLI (`relay login`, `send`, `search`, `ask`, `incident`, `deploy`, `tail`, `pr`, `review`) — the v0 subset folded in when Phase 3 stopped owning the CLI
 - MCP server: scoped read/post tools for Claude Code, Cursor and other agents
 - **Agents as channel members:** agent identities, channel-scoped tokens, progress posted to a thread, human replies routed back to the agent, run history and revoke
 - `relay` GitHub Action for CI notifications and deploy events
@@ -574,7 +592,8 @@ Scope:
 - Public pricing and self-serve signup
 - Onboarding checklist and templates (#deploys, #incidents, service catalog)
 - Docs, changelog, status page, support workflow
-- Slack bridge and import at signup; “start with one bridged channel” migration path
+- Slack import at signup; “keep Slack for general chat, move one engineering loop” migration path
+- Two-way Slack bridge only if the D8 revisit trigger fires
 - Marketing site and launch content
 - Load test sized for the ICP: about 50 active workspaces, 2k concurrent WebSockets, 200 messages/sec burst
 - Support SLO and incident-response process for Relay itself
@@ -604,29 +623,49 @@ Not scheduled. Each item starts only when a design partner or paying customer ma
 
 ## 10. Phase gates and metrics
 
-| Gate | Metric | Target |
-|---|---|---|
-| Activation | Workspace created + GitHub connected + first PR thread + 3 active members in 7 days | 40% of signups |
-| Habit | Weekly active seats / total seats | 60% by week 4 |
-| Wedge adoption | Teams using review inbox weekly | 50% of active teams |
-| Two-way value | PR thread replies that sync to GitHub, per active team per week | ≥ 10 |
-| Coexistence | Pilot teams running a Slack bridge who move a second channel to Relay | 50% within 30 days |
-| Developer surface | Teams with CLI, MCP or agent token | 25% of active teams |
-| Retention | 90-day workspace retention | 85% |
-| Monetization | Free → paid conversion | 5–8% |
-| Quality | API p95 / WebSocket delivery p95 | < 250 ms / < 100 ms |
-| Reliability | Monthly uptime | 99.9% |
-| Security | Critical tenant-isolation bugs | 0 |
+Read at a fixed cadence. The bands say what to investigate, not whether to stop.
 
-Instrument from Phase 1. Every feature ships with a product event. No dashboard, no launch.
+| Gate | Metric | Green | Amber | Red → the one change |
+|---|---|---|---|---|
+| Activation | Workspace created + GitHub connected + first PR thread + 3 active members in 7 days | ≥ 40% of signups | 20–40% | < 20% → fix onboarding before adding scope |
+| Habit | Weekly writers ÷ activated seats | ≥ 60% by week 4 | 35–60% | < 35% → cut scope, never add it |
+| Wedge adoption | Active teams with ≥ 1 `review_inbox.item_opened` in the week | ≥ 50% | 25–50% | < 25% → the inbox is not the daily loop; re-interview |
+| Two-way value | PR thread replies that sync to GitHub, per active team per week | ≥ 10 for 3 consecutive weeks | 3–9, or rising | < 3 for 3 weeks → narrow to the review inbox only |
+| Coexistence | Teams keeping one Relay channel active alongside Slack | 4 consecutive weeks | 2–3 weeks | read-only usage → re-interview, do not add features |
+| Developer surface | Teams with CLI, MCP or agent token | ≥ 25% of active teams | 10–25% | < 10% → the surface is not needed yet; defer it |
+| Retention | 90-day workspace retention | ≥ 85% | 70–85% | < 70% → diagnose before promoting |
+| Monetization | Free → paid conversion | 5–8% | 2–5% | < 2% → revisit the wedge or the price, not the sales effort |
+| Quality | API p95 / WebSocket delivery p95 | < 250 ms / < 100 ms | < 500 ms / < 200 ms | worse → stop feature work |
+| Reliability | Monthly uptime | ≥ 99.9% | ≥ 99.5% | worse → stop feature work |
+| Security | Critical tenant-isolation bugs | 0 | — | any → stop and fix |
 
-### Kill criteria
+Instrument from Phase 1: every feature ships with a product event, and nothing ships without one.
 
-Decide in advance what failure looks like, so the wedge is tested rather than defended:
+### How a gate is read
 
-- **After the Phase 2 pilot (30 days):** if fewer than 2 of 3 design partners use the review inbox or PR threads weekly, stop and re-interview before building Phase 3. Either the wedge changes (for example, incidents-first) or the plan does.
-- **After Phase 3:** if no pilot team moves a second channel off Slack within 30 days of bridging, the coexistence path is not converting. Investigate before investing in Phase 4.
-- **Before Phase 6:** if the activation metric is below 20% of signups, fix activation before adding AI.
+- **Cadence is fixed, thresholds are not.** Review weekly during the pilot and at the end of every phase. Those review points do not move. The numbers are read as bands, and a band can be re-baselined once, with the reason written down.
+- **Trend beats snapshot.** Act only after two or three consecutive weeks move the same way. A 30-day pilot with three partners is noisy by construction, and a single good or bad week carries no information.
+- **Every review ends in one of four outcomes:** continue as planned, **continue narrower (the default)**, change the wedge, or pause. Narrowing means shipping the next smallest thing that tests the open assumption.
+- **Red is a prompt for one change, not a stop.** Write the diagnosis, make one change, and read again at the next review. Only the invariants below are absolute.
+
+### Invariants
+
+These are the cost of being trusted with a repository. They do not get loosened:
+
+- Critical tenant-isolation bugs: 0
+- `pr_thread.sync_failed` ÷ `pr_thread.reply_synced`: < 0.5%
+- Slack import: no duplicated or dropped messages after a re-run
+- Webhook signatures verified; tokens hashed; revokes audited
+- A design partner’s security questionnaire answered before day 1
+- Sync bugs fixed within 48 hours during a pilot
+
+### Review triggers
+
+Written down in advance, so the wedge is tested rather than defended:
+
+- **Pilot (30 days, 3 partners).** If fewer than 2 keep PR threads or the review inbox active across two consecutive weeks, or two-way replies sit in the red band for three weeks, do not open Phase 3’s unlocked scope. Re-interview, then choose: continue narrower (review inbox only), change the wedge (incidents-first), or pause.
+- **After the Phase 3 base slice.** If no partner keeps a Relay channel active alongside Slack for four weeks, the second-window path is not converting. Diagnose before unlocking any Phase 3 item.
+- **Before Phase 6.** If activation sits in the red band, fix activation before adding AI.
 
 ---
 
@@ -656,11 +695,12 @@ Do not rewrite the chat domain model. The current schema and routes are a good b
 
 | Risk | Why it matters | Mitigation |
 |---|---|---|
-| Slack network effects | Teams won’t leave their history and habits | Slack bridge so teams trial one channel without leaving Slack; Slack import; GitHub login |
-| Feature sprawl | A small team cannot out-build Slack | Explicit out-of-scope list (§5); parity items only when partners ask; kill criteria (§10) |
-| Wedge doesn’t land | Months of work on the wrong problem | GitHub wedge moved to Phase 2; 30-day kill criterion before further investment |
+| Slack network effects | Teams won’t leave their history and habits | Read-only Slack import for history, one-way notifications so nobody is out of the loop, and GitHub as the discovery surface (a PR links its Relay thread). A two-way bridge is deferred until a partner is blocked without it. |
+| Second-window drag | Without a bridge, Relay is one more app to remember to open | Scope the pilot to one loop (PR threads + review inbox), put notifications where people already look, and measure opens that beat GitHub and Slack rather than raw usage |
+| Feature sprawl | A small team cannot out-build Slack | Explicit out-of-scope list (§5); parity items only when partners ask; staged review triggers (§10) |
+| Wedge doesn’t land | Months of work on the wrong problem | GitHub wedge moved to Phase 2; a 30-day pilot read as bands, with “continue narrower” as the default |
 | GitHub dependency | Repo features are the wedge | Abstract provider interface; GitLab next |
-| Sync correctness | Duplicated or lost comments destroy trust in two-way sync and the bridge | Origin tracking on every mirrored item, idempotency keys, a reconciliation job, visible sync status |
+| Sync correctness | Duplicated or lost comments destroy trust in two-way sync, and a sloppy import destroys trust in history | Origin tracking on every mirrored item, idempotency keys, a reconciliation job for GitHub sync, re-runnable imports, visible sync status |
 | AI trust and cost | Bad summaries or data leaks kill adoption | Citations, scoped retrieval, opt-in, BYO key, budgets |
 | Incident and deploy scope creep | PagerDuty, incident.io and CD tools are deep | Orchestrate and link; no roles, paging, locks or approvals |
 | Multi-tenant data leak | Existential | Tenant-isolation tests, RLS defense, pen test, audit |
@@ -681,7 +721,7 @@ Do not rewrite the chat domain model. The current schema and routes are a good b
 5. **Desktop:** is the Electron app required at launch? Web-first, with PWA push. Recent work went into desktop install and certificate pinning: decide in Phase 0 whether desktop work pauses until the web wedge is proven.
 6. **Huddles:** keep the existing mesh as a small-team beta; no SFU. Revisit only if partners ask repeatedly.
 7. **Slack import depth:** public channels + messages first; DMs and files later.
-8. **Slack bridge limits:** which Slack plan features (threads, reactions, files) must the bridge carry for a credible trial?
+8. **Slack integration depth:** is read-only import plus one-way notifications enough for a credible trial, or does a partner need message mirroring before they will move a loop? Decided as “enough for now” (D8); reopened only by its trigger.
 9. **Agent identities:** do agents count as seats for billing?
 10. **Pricing:** $10/seat Team and $18/seat Business — test with 10 interviews.
 
@@ -692,10 +732,10 @@ Do not rewrite the chat domain model. The current schema and routes are a good b
 1. Review the prototype in `design/prototype/` and mark Build / Later / Cut in its Roadmap view.
 2. Run 8–10 problem interviews with the [interview guide](./docs/interview-guide.md); answer the ranked questions in the [research plan](./docs/research-plan.md).
 3. Settle the Phase 1–2 entries in [open decisions](./docs/open-decisions.md) (desktop, auth, GitHub-only, comment attribution) and lock the Phase 1 + Phase 2 scope.
-4. Run spikes S1, S2 and S4 from [technical spikes](./docs/technical-spikes.md): GitHub sync, the Slack bridge's terms and rate limits, tenancy.
+4. Run spikes S1 and S4 from [technical spikes](./docs/technical-spikes.md): GitHub sync and tenancy. S2 is now a one-day import-and-notification check, not a phase blocker.
 5. Stand up staging infrastructure (Postgres, Redis, S3, email, Sentry) and the events in [metrics](./docs/metrics.md).
 6. Implement the tenant model, GitHub OAuth, magic link and invites before any new chat feature.
 7. Build the Phase 2 GitHub wedge (PR threads with two-way comment sync) as the first visible proof.
-8. Recruit 3 design partners and run the 30-day pilot from the [pilot playbook](./docs/pilot-playbook.md), judged against the kill criteria in §10.
+8. Recruit 3 design partners and run the 30-day pilot from the [pilot playbook](./docs/pilot-playbook.md), read against the review triggers in §10.
 
-The first visible milestone, about 10 weeks in, should be: **a design partner can sign up with GitHub, invite their team, see a real PR become a thread in `#payments`, and reply there to have it land on GitHub.** Everything before that is plumbing; everything after it is the product.
+The first visible milestone, at the end of Phase 2: **a design partner can sign up with GitHub, invite their team, see a real PR become a thread in `#payments`, and reply there to have it land on GitHub.** Everything before that is plumbing; everything after it is the product. The plan deliberately states no week count for it: the sequence and the review points are the commitment, and the duration follows the spikes.

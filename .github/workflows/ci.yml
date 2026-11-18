@@ -1,0 +1,55 @@
+# Typecheck and test on every push and pull request. The server suite runs twice: on embedded
+# PGlite, and on Postgres + Redis, where the race tests hit real row locks and the multi-process
+# tests run two servers against one Redis.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # The desktop tests do not launch Electron, so skip its 100 MB download.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: relay
+          POSTGRES_DB: relay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U relay" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - name: Test (PGlite, in-process fan-out)
+        run: npm test
+
+      - name: Test the server on Postgres and Redis
+        run: npm test -w @relay/server
+        env:
+          TEST_DATABASE_URL: postgres://relay:relay@localhost:5432/relay
+          TEST_REDIS_URL: redis://localhost:6379

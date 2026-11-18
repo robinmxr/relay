@@ -1,6 +1,6 @@
 # Open decisions
 
-The decisions plan v2 leaves open (PLAN.md §13), plus the ones the prototype surfaced. Each one has options, a current recommendation, the evidence that would change it, and when it must be made. When a decision is made, change its status, add the date and the reason, and update PLAN.md.
+The decisions plan v2.1 leaves open (PLAN.md §13), plus the ones the prototype surfaced. Each one has options, a current recommendation, the evidence that would change it, and when it must be made. When a decision is made, change its status, add the date and the reason, and update PLAN.md.
 
 Status: **Open** · **Leaning** (recommendation stands unless evidence arrives) · **Decided**
 
@@ -36,6 +36,7 @@ Recent commits went into desktop install and certificate pinning, while the plan
 **Status:** Leaning · **Decide by:** Phase 1 week 1
 
 GitHub OAuth + magic link (plan v2). **Would change if:** a design partner's security policy requires Google Workspace SSO; add Google OAuth then.
+Launch also needs working email deliverability — a verified sending domain with SPF/DKIM. Treat that as part of this decision, not as a Phase 7 detail.
 
 ### D4 · GitHub only, or GitHub + GitLab?
 **Status:** Leaning (GitHub only) · **Decide by:** end of Phase 0
@@ -77,15 +78,18 @@ PR review comments (inline, on a line), PR conversation comments, and review sum
 
 ## Needed before Phase 3
 
-### D8 · Slack bridge depth
-**Status:** Open · **Decide by:** after spike S2
+### D8 · Slack integration depth
+**Status:** Decided (2026-10-27) — see [Decided](#decided). Read-only history import plus one-way notifications; no two-way message bridge before GA.
 
-- A. Messages only
-- B. Messages + threads + reactions
-- C. B + files
+### D15 · Which events notify into Slack
+**Status:** Leaning · **Decide by:** Phase 2 week 1, for the four PR events; revisit in Phase 4 for incidents
 
-**Recommendation:** B. Threads matter for a credible trial; files can be links at first.
-**Blocked by:** Slack API terms and rate limits for non-Marketplace apps (spike S2). If the terms block a bridge, this becomes an import-plus-"post summaries back to Slack" path, and kill criterion 2 needs rewriting.
+- A. PR threads only
+- B. The engineering loop: PR threads, review requests, failing checks, and mentions, plus incidents once rooms exist
+- C. Everything a user subscribes to
+
+**Recommendation:** B, per channel and opt-in. It keeps the loop visible without making Slack a second firehose, which is the exact complaint partners have about the GitHub app.
+**Evidence:** which notifications partners mute first during the pilot. A notification nobody reads is worse than none.
 
 ### D9 · Slack import depth
 **Status:** Leaning (public channels + messages; DMs and files later)
@@ -121,4 +125,17 @@ Keep the mesh as a small-team beta, with no SFU work. **Would change if:** 3+ pa
 
 ## Decided
 
-_Move entries here with date, decision and reason._
+### D8 · Slack bridge — deferred (2026-10-27)
+**Decision:** no two-way Slack bridge before GA. Coexistence ships as **read-only history import** from the admin workspace export, plus **one-way notifications** into Slack through incoming webhooks.
+
+**Why:**
+- A bridge is the most expensive integration in the plan: threads, reactions, edits, files, author attribution and a permanent reconciliation job, for a room that exists twice.
+- It is also the least certain. Slack’s terms and rate limits for non-Marketplace apps (spike S2) could block it outright, and it sat before Phase 3 — after the pilot had already been designed around it.
+- It carried the entire adoption argument, which made one integration a single point of failure. Import plus notifications gets history and awareness without that.
+- It does not differentiate. Message mirroring is a commodity; ownership routing and incident context are not.
+
+**Cost accepted:** during the pilot, Relay is a second window. So the pilot is scoped to one loop (PR threads + the review inbox), and it is judged on whether Relay gets opened *before* GitHub or Slack — not on raw usage.
+
+**Revisit when:** two or more design partners say they would move a channel off Slack but will not run a second window, or a partner makes mirroring a purchase condition. Re-open with a fresh terms check and a fresh spike; do not assume the 2026 answer still applies.
+
+_Next: D1, D3, D5, D6 and D10 are leaning and can be closed after the Phase 0 interviews and spikes._

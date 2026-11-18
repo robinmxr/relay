@@ -35,7 +35,7 @@ npm run dev          # server on :4000, web client on http://localhost:5173
 npm run desktop      # in a second terminal: the desktop app
 ```
 
-Sign in with an email and password; accounts come with a one-time recovery code (there is no email server, so that code is the password-reset path). Accounts created before passwords existed start with the password `password` and are made to pick their own at first sign-in. The security tab in settings lists your active sessions — each with its last-seen time and user agent — and lets you revoke one, or all others at once. Everyone lands in the "Relay HQ" workspace, whose invite code is `relay-hq`.
+Sign in with an email and password; accounts come with a one-time recovery code (there is no email server, so that code is the password-reset path). Accounts from databases created before password sign-in existed have no password until the workspace owner resets it. The security tab in settings lists your active sessions — each with its last-seen time and user agent — and lets you revoke one, or all others at once. Everyone lands in the "Relay HQ" workspace, whose invite code is `relay-hq`.
 
 **Single port (production style):** `npm run build && npm start` serves the built client and the API together on http://localhost:4000.
 
@@ -49,7 +49,7 @@ HOST=0.0.0.0
 RELAY_TLS_CERT=.data/tls/cert.pem
 RELAY_TLS_KEY=.data/tls/key.pem
 RELAY_HTTPS_PORT=4443
-RELAY_WEB_URL=https://192.168.21.155:4443   # the fixed LAN address, and where the desktop app loads from
+RELAY_WEB_URL=https://192.168.1.50:4443     # this machine's fixed LAN address, and where the desktop app loads from
 ```
 
 On start the server prints the address to share with people on your network, and the certificate's SHA-256 fingerprint. The HTTPS listener is what makes huddles work off `localhost`; the fingerprint is what the desktop app compares against when it asks to trust the server's self-signed certificate. `README` for [`relay-chat`](packages/relay-chat/README.md) covers the trust prompt from the user's side.
@@ -64,9 +64,15 @@ On start the server prints the address to share with people on your network, and
 ### Checks
 
 ```sh
-npm test             # server integration tests (20) and desktop unit tests (15)
+npm test             # server integration tests (26) and desktop unit tests (16), on embedded PGlite
 npm run typecheck    # all workspaces
+
+# The server suite again on real Postgres and Redis (npm run db:up gives you both; use an empty database).
+# This also runs the multi-process tests: two servers on one Redis.
+TEST_DATABASE_URL=postgres://relay:relay@localhost:5432/relay_test TEST_REDIS_URL=redis://localhost:6379 npm test -w @relay/server
 ```
+
+CI (`.github/workflows/ci.yml`) runs both on every push and pull request.
 
 ## Features and how they work
 
@@ -175,6 +181,7 @@ These are gaps in the current code. The plan for closing them, and for moving fr
 - **No developer integrations yet.** No GitHub App, PR threads, CI context, service catalog, CLI or MCP server. These are Phases 2–5 of the plan.
 - **Passwords, not full auth.** Sign-up, sign-in, recovery codes, a session list (`/api/me/sessions`) and owner password resets (a one-time password handed over in person), but no email delivery and no SSO. `RELAY_DEV_SIGNIN=true` re-opens passwordless email sign-in, for bootstrapping only.
 - **Huddles live on one server process.** Huddle membership is kept in memory, so with several processes behind Redis, everyone in one huddle must reach the same process (sticky sessions). The mesh topology tops out around 5 or 6 people; beyond that it needs an SFU.
+- **Live events are at-most-once.** Each write commits first and then publishes its event; there is no outbox. If a process dies between the two, or a Redis publish fails, connected clients miss that event and see the change only when they next reconnect and resync. The database itself stays consistent: multi-statement writes (posting with files and mentions, editing, deleting a thread parent, reactions) each run in one transaction, and events are sent only after commit.
 - **Presence after a crash.** If a server process crashes, its users read as offline after 60 seconds, but no "went offline" event is sent.
 - **Files are on local disk.** There's no S3 backend yet, and files uploaded but never sent aren't cleaned up.
 - **The installers are not signed yet.** There is no Apple Developer ID or Windows certificate yet, so macOS asks users to allow the app the first time they open it, and auto-update does not apply to unsigned macOS builds. The release pipeline takes the credentials when they exist.

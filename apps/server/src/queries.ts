@@ -7,6 +7,7 @@ import { toUser, type UserRow } from './users';
 
 const MESSAGE_SELECT = `
   select m.id, m.channel_id, m.parent_id, m.body, m.created_at, m.edited_at, m.deleted_at,
+    to_char(m.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_at,
     json_build_object('id', u.id, 'email', u.email, 'name', u.name,
       'avatarKey', u.avatar_key, 'avatarUpdatedAt', u.avatar_updated_at, 'statusEmoji', u.status_emoji,
       'statusText', u.status_text, 'statusExpires', u.status_expires_at) as author,
@@ -36,6 +37,8 @@ interface MessageRow {
   parent_id: string | null;
   body: string;
   created_at: Date | string;
+  /** created_at to the microsecond, for cursors (a JS Date keeps only milliseconds). */
+  cursor_at: string;
   edited_at: Date | string | null;
   deleted_at: Date | string | null;
   author: UserRow;
@@ -72,18 +75,43 @@ export async function getMessage(db: Db, files: FileStore, id: string): Promise<
   return rows[0] ? toMessage(rows[0], files) : null;
 }
 
-/** Newest `limit` top-level messages before `before`, returned oldest first. */
-export async function listMessages(db: Db, files: FileStore, channelId: string, before: string | null, limit: number): Promise<MessagePage> {
+/** Where a page ends: the last message's (created_at, id), as an opaque string for the client. */
+export interface Cursor {
+  createdAt: string;
+  id: string;
+}
+
+export function encodeCursor(c: Cursor): string {
+  return Buffer.from(`${c.createdAt}|${c.id}`).toString('base64url');
+}
+
+/** Null when the string is not a cursor this server made. */
+export function decodeCursor(raw: string): Cursor | null {
+  const [createdAt, id, ...rest] = Buffer.from(raw, 'base64url').toString().split('|');
+  if (rest.length || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(createdAt ?? '')) return null;
+  if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  return { createdAt, id };
+}
+
+/**
+ * Newest `limit` top-level messages before the cursor, returned oldest first. The cursor holds
+ * both sort keys, so messages that share a timestamp across a page boundary are not skipped.
+ */
+export async function listMessages(db: Db, files: FileStore, channelId: string, before: Cursor | null, limit: number): Promise<MessagePage> {
   const rows = await db.query<MessageRow>(
     `${MESSAGE_SELECT}
      where m.channel_id = $1 and m.parent_id is null
        and (m.deleted_at is null or exists (select 1 from messages r where r.parent_id = m.id))
-       and ($2::timestamptz is null or m.created_at < $2::timestamptz)
+       and ($2::timestamptz is null or (m.created_at, m.id) < ($2::timestamptz, $3::uuid))
      order by m.created_at desc, m.id desc
-     limit $3`,
-    [channelId, before, limit + 1],
+     limit $4`,
+    [channelId, before?.createdAt ?? null, before?.id ?? null, limit + 1],
   );
-  return { messages: rows.slice(0, limit).reverse().map((r) => toMessage(r, files)), hasMore: rows.length > limit };
+  const page = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? encodeCursor({ createdAt: last.cursor_at, id: last.id }) : null;
+  return { messages: page.reverse().map((r) => toMessage(r, files)), hasMore, nextCursor };
 }
 
 export async function listReplies(db: Db, files: FileStore, parentId: string): Promise<Message[]> {

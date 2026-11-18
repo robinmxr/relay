@@ -10,9 +10,9 @@ Owner: product · Timebox: Phase 0 (1 week) plus the 30-day Phase 2 pilot
 
 | # | Question | Why it matters | Method | Settled when | Changes |
 |---|---|---|---|---|---|
-| R1 | Is the PR ↔ chat context switch the most painful one, or is it incidents, CI failures or "where did we decide that"? | The whole wedge (Phase 2) assumes PRs. If incidents hurt more, the sequence flips. | 8–10 interviews ([interview guide](./interview-guide.md)), ranked problem list | 6+ of 10 rank PR/CI pain in their top two | §9 sequencing |
-| R2 | Will engineers reply in a Relay thread instead of on GitHub? | Two-way sync only has value if people write in Relay. | Interviews (current habits) + pilot metric "PR replies written in Relay" | ≥ 10 synced replies per active team per week in the pilot | Pillar 4.2, kill criterion 1 |
-| R3 | Can a team trial Relay while staying on Slack, and will the bridge convert? | Slack network effects are the top adoption risk. | Slack API/terms review ([technical spikes](./technical-spikes.md) S2) + pilot | Bridge is allowed and stable; 1+ pilot team moves a second channel | Phase 3 scope, kill criterion 2 |
+| R1 | Is the PR ↔ chat context switch the most painful one, or is it incidents, CI failures or "where did we decide that"? | The whole wedge (Phase 2) assumes PRs. If incidents hurt more, the sequence flips. | 8–10 interviews ([interview guide](./interview-guide.md)), ranked problem list | 7+ of 10 rank PR pain in their top two, or 5+ rank it first. Score PR separately from CI; bundling them hides which wedge to build. | §9 sequencing |
+| R2 | Will engineers reply in a Relay thread instead of on GitHub? | Two-way sync only has value if people write in Relay. | Interviews (current habits) + pilot metric "PR replies written in Relay" | ≥ 20 synced replies per active team per week — deliberately twice the green band, so passing the gate is not the same as settling the question | Pillar 4.2, review trigger 1 |
+| R3 | Will a team run Relay as a second window for one loop while staying on Slack, and does one-way notification make that tolerable? | Slack network effects are the top adoption risk, and there is no bridge to soften it (D8). | Pilot: weekly check-ins, whether Relay gets opened before GitHub or Slack ([technical spikes](./technical-spikes.md) S2 covers import and notifications) | 2 of 3 partners keep one Relay channel active for 4 consecutive weeks, and at least one opens Relay before GitHub on a review request | Phase 3 scope, review trigger 2 |
 | R4 | Who buys, and at what price? | $10/$18 per seat is a guess. | Pricing questions in interviews; Van Westendorp on 15+ responses | A price band that 60%+ of EMs call "acceptable" | §6.5 packaging |
 | R5 | Do agents need a home in team chat? | Agents-as-members is a bet on 2026 workflows. | Interviews: how teams run Claude Code/Cursor agents today | 3+ teams already pipe agent output into Slack or PRs | Phase 5 priority |
 | R6 | Is ownership data (CODEOWNERS, service catalog) good enough to route on? | Ownership-aware routing fails on stale CODEOWNERS. | Ask partners for their CODEOWNERS; measure coverage | ≥ 70% of changed paths in the last 100 PRs have an owner | Phase 4 routing |
@@ -25,14 +25,15 @@ Write these down before interviews so we can't rationalise afterwards.
 
 1. **Engineers lose 30+ minutes a day** switching between GitHub, CI and chat. *Disproved if* most interviewees can't name a recent concrete instance.
 2. **The Slack GitHub app is seen as noise**, not as a solution. *Disproved if* teams say it works well and they'd only want small tweaks.
-3. **Teams would run two chat tools for 30 days** if one channel is bridged. *Disproved if* EMs say "we'd only switch all at once."
+3. **Teams would run two chat tools for 30 days** for one loop, with Slack still pinging them. *Disproved if* EMs say they would only switch all at once, or if Relay opens fall in weeks 3–4.
 4. **Incident tooling is already solved** (PagerDuty/incident.io) and teams don't want another one. *Disproved if* teams under 50 engineers have no incident tooling and want it in chat.
 5. **AI catch-up is a nice-to-have, not a reason to switch.** *Disproved if* it comes up unprompted as a top-3 pain.
+6. **A one-way notification is enough to make a second window tolerable.** *Disproved if* partners keep the notification on but stop opening Relay, or mute it within two weeks. This is the assumption that replaced the Slack bridge (D8), so it needs its own test.
 
 ## 3. Desk research (no interviews needed)
 
 - **Competitor teardown**: see [competitive research](./competitive-research.md).
-- **Platform constraints**: GitHub App permissions and rate limits; Slack API terms and rate limits for non-Marketplace apps; iOS Web Push requirements. See [technical spikes](./technical-spikes.md).
+- **Platform constraints**: GitHub App permissions and rate limits; Slack incoming webhooks and workspace-export import (no bridge, so no Marketplace review); iOS Web Push requirements. See [technical spikes](./technical-spikes.md).
 - **Market sizing (light)**: count of companies with 10–100 engineers on GitHub + Slack. One estimate with a stated method is enough; do not spend more than half a day.
 - **Pricing benchmarks**: per-seat prices of Slack Pro/Business+, Linear, incident.io, Graphite, Sentry Team. Note what each gates behind the paid plan.
 

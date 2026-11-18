@@ -15,6 +15,8 @@ export interface State {
   /** Top-level messages per channel, oldest first. Missing = not loaded yet. */
   messages: Record<string, Message[]>;
   hasMore: Record<string, boolean>;
+  /** Where the next older page starts, per channel. */
+  cursors: Record<string, string | null>;
   /** Thread replies per parent message. Missing = not loaded yet. */
   replies: Record<string, Message[]>;
   typing: Record<string, Record<string, { name: string; until: number }>>;
@@ -30,7 +32,7 @@ export type Action =
   | { type: 'presence'; userId: string; online: boolean }
   | { type: 'open'; channelId: string | null }
   | { type: 'thread'; id: string | null }
-  | { type: 'messages'; channelId: string; messages: Message[]; hasMore: boolean; older?: boolean }
+  | { type: 'messages'; channelId: string; messages: Message[]; hasMore: boolean; nextCursor: string | null; older?: boolean }
   | { type: 'replies'; parentId: string; replies: Message[] }
   | { type: 'upsert'; message: Message; created: boolean }
   | { type: 'remove'; id: string; channelId: string; parentId: string | null }
@@ -53,6 +55,7 @@ export function initialState(me: User): State {
     threadId: null,
     messages: {},
     hasMore: {},
+    cursors: {},
     replies: {},
     typing: {},
   };
@@ -125,7 +128,12 @@ export function reducer(s: State, a: Action): State {
     case 'messages': {
       const existing = s.messages[a.channelId] ?? [];
       const messages = a.older ? [...a.messages, ...existing.filter((m) => !a.messages.some((n) => n.id === m.id))] : a.messages;
-      return { ...s, messages: { ...s.messages, [a.channelId]: messages }, hasMore: { ...s.hasMore, [a.channelId]: a.hasMore } };
+      return {
+        ...s,
+        messages: { ...s.messages, [a.channelId]: messages },
+        hasMore: { ...s.hasMore, [a.channelId]: a.hasMore },
+        cursors: { ...s.cursors, [a.channelId]: a.nextCursor },
+      };
     }
     case 'replies':
       return { ...s, replies: { ...s.replies, [a.parentId]: a.replies } };

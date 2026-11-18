@@ -25,7 +25,7 @@ To let other people on your network use it, listen on all addresses:
 relay-chat --host 0.0.0.0
 ```
 
-On start it prints the address to share, for example `https://192.168.21.155:4443`, which is the URL for everyone else on the network. Voice huddles need HTTPS for anyone not on `localhost` (see below).
+On start it prints the address to share, for example `https://192.168.1.50:4443`, which is the URL for everyone else on the network. Voice huddles need HTTPS for anyone not on `localhost` (see below).
 
 ## Signing in
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import WebSocket from 'ws';
-import type { Channel, FileInfo, MeResponse, Message, ServerEvent, SessionInfo, SignInResponse, UserSettings, UserWithPresence, Workspace } from '@relay/shared';
+import type { Channel, FileInfo, MeResponse, Message, MessagePage, ServerEvent, SessionInfo, SignInResponse, UserSettings, UserWithPresence, Workspace } from '@relay/shared';
 import { buildApp } from '../src/app';
 
 let ctx: Awaited<ReturnType<typeof buildApp>>;
@@ -14,7 +14,8 @@ let filesDir: string;
 
 before(async () => {
   filesDir = await mkdtemp(path.join(tmpdir(), 'relay-test-'));
-  ctx = await buildApp({ devSignin: true, filesDir, limits: { signinPerMinute: 1000 } });
+  // TEST_DATABASE_URL runs the suite against Postgres (an empty database); otherwise in-memory PGlite.
+  ctx = await buildApp({ devSignin: true, filesDir, databaseUrl: process.env.TEST_DATABASE_URL, limits: { signinPerMinute: 1000, signinPerAccountPer15Minutes: 1000 } });
   await ctx.app.listen({ port: 0, host: '127.0.0.1' });
   host = `127.0.0.1:${(ctx.app.server.address() as AddressInfo).port}`;
 });
@@ -624,4 +625,113 @@ test('channel admin: rename, archive, leave, private membership', async () => {
   assert.equal((await call('PATCH', `/api/channels/${dm.id}`, boss.token, { name: 'x' })).status, 400);
   assert.equal((await call('POST', `/api/channels/${dm.id}/archive`, boss.token, { archived: true })).status, 400);
   assert.equal((await call('DELETE', `/api/channels/${dm.id}/members/me`, boss.token)).status, 400);
+});
+
+test('two posts racing for the same file: exactly one gets it', async () => {
+  const up = await upload(alice.token, projId, 'race.txt', 'text/plain', Buffer.from('race'));
+  assert.equal(up.status, 200);
+  const results = await Promise.all(
+    [1, 2, 3].map((i) => call<Message>('POST', `/api/channels/${projId}/messages`, alice.token, { body: `race ${i}`, fileIds: [up.json.id] })),
+  );
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 400, 400]);
+  // The losers rolled back: no message without its file was left behind.
+  const page = (await call<MessagePage>('GET', `/api/channels/${projId}/messages?limit=100`, alice.token)).json;
+  assert.equal(page.messages.filter((m) => m.body.startsWith('race ')).length, 1);
+  assert.equal(page.messages.find((m) => m.body.startsWith('race '))?.files[0]?.id, up.json.id);
+});
+
+test('paging does not skip messages that share a timestamp', async () => {
+  const ch = (await call<{ id: string }>('POST', `/api/workspaces/${hq}/channels`, alice.token, { name: 'same-time' })).json.id;
+  const db = ctx.ctx.db;
+  const at = '2026-01-01T00:00:00.000001Z';
+  for (let i = 0; i < 7; i++) {
+    await db.query('insert into messages (channel_id, user_id, body, created_at) values ($1, $2, $3, $4)', [ch, alice.user.id, `tie ${i}`, at]);
+  }
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  for (let pages = 0; pages < 10; pages++) {
+    const url: string = `/api/channels/${ch}/messages?limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const page: MessagePage = (await call<MessagePage>('GET', url, alice.token)).json;
+    seen.push(...page.messages.map((m) => m.body));
+    assert.equal(page.hasMore, page.nextCursor !== null);
+    cursor = page.nextCursor;
+    if (!cursor) break;
+  }
+  assert.deepEqual(seen.sort(), [0, 1, 2, 3, 4, 5, 6].map((i) => `tie ${i}`));
+  assert.equal((await call('GET', `/api/channels/${ch}/messages?cursor=bogus`, alice.token)).status, 400);
+});
+
+test("a reply racing its parent's delete leaves a consistent thread", async () => {
+  for (let round = 0; round < 5; round++) {
+    const parent = (await call<Message>('POST', `/api/channels/${projId}/messages`, alice.token, { body: `parent ${round}` })).json;
+    const [reply, del] = await Promise.all([
+      call<Message>('POST', `/api/channels/${projId}/messages`, alice.token, { body: 'reply', parentId: parent.id }),
+      call('DELETE', `/api/messages/${parent.id}`, alice.token),
+    ]);
+    assert.equal(del.status, 200);
+    const replies = await call<Message[]>('GET', `/api/messages/${parent.id}/replies`, alice.token);
+    if (reply.status === 200) {
+      // The reply won: the parent is a placeholder that still holds it.
+      assert.equal(replies.status, 200);
+      assert.deepEqual(replies.json.map((r) => r.id), [reply.json.id]);
+    } else {
+      assert.equal(reply.status, 400);
+      assert.equal(replies.status, 404);
+    }
+  }
+});
+
+test('concurrent edit and delete never leave mentions on a deleted message', async () => {
+  const m = (await call<Message>('POST', `/api/channels/${projId}/messages`, alice.token, { body: 'edit me' })).json;
+  const [edit, del] = await Promise.all([
+    call('PATCH', `/api/messages/${m.id}`, alice.token, { body: `hi <@${bob.user.id}>` }),
+    call('DELETE', `/api/messages/${m.id}`, alice.token),
+  ]);
+  assert.equal(del.status, 200);
+  assert.ok([200, 404].includes(edit.status), `edit returned ${edit.status}`);
+  const left = await ctx.ctx.db.query('select 1 from message_mentions where message_id = $1', [m.id]);
+  assert.equal(left.length, 0);
+});
+
+test('sign-in is rate limited per account across IPs', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'relay-rla-'));
+  const limited = await buildApp({ devSignin: true, filesDir: dir, limits: { signinPerMinute: 1000, signinPerAccountPer15Minutes: 2 } });
+  try {
+    const statuses = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await limited.app.inject({
+        method: 'POST',
+        url: '/api/auth/signin',
+        remoteAddress: `10.0.0.${i + 1}`,
+        payload: { email: 'Target@example.com', password: 'guess' },
+      });
+      statuses.push(res.statusCode);
+    }
+    assert.deepEqual(statuses, [401, 401, 429]);
+    // Someone else's account is unaffected.
+    const other = await limited.app.inject({ method: 'POST', url: '/api/auth/signin', payload: { email: 'other@example.com' } });
+    assert.equal(other.statusCode, 200);
+  } finally {
+    await limited.app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('websocket closes sockets that skip auth or flood frames', async () => {
+  const open = async () => {
+    const ws = new WebSocket(`ws://${host}/ws`);
+    await new Promise<void>((resolve) => ws.once('open', () => resolve()));
+    return ws;
+  };
+  const closeCode = (ws: WebSocket) => new Promise<number>((resolve) => ws.once('close', (c) => resolve(c)));
+
+  const early = await open();
+  early.send(JSON.stringify({ type: 'ping' }));
+  assert.equal(await closeCode(early), 4401);
+
+  const flood = await open();
+  flood.send(JSON.stringify({ type: 'auth', token: alice.token }));
+  const closed = closeCode(flood);
+  for (let i = 0; i < 80; i++) flood.send(JSON.stringify({ type: 'ping' }));
+  assert.equal(await closed, 4429);
 });
